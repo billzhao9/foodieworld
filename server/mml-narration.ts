@@ -6,7 +6,13 @@ import type { NarrationSynthesizer } from "./narration";
 import { ApiError } from "./upstream";
 
 const MODEL = "elevenlabs-flash-v2-5-tts";
-export const MML_NARRATION_NAMESPACE = `mml-v1:${MODEL}:default`;
+// Explicit language-matched voices from the MML ONE production catalogue.
+// The MCP ?lang parameter localizes tool responses; it does not cast a voice.
+export const NARRATION_VOICES = Object.freeze({
+  zh: process.env.NARRATION_VOICE_ZH?.trim() || "5s3UifUu3OJ90z17rRMA", // Jun: Mandarin, energetic
+  en: process.env.NARRATION_VOICE_EN?.trim() || "FGY2WhTYpPnrIDTdsKH5", // Laura: English, quirky
+});
+export const MML_NARRATION_NAMESPACE = `mml-v2:${MODEL}:${NARRATION_VOICES.zh}:${NARRATION_VOICES.en}`;
 const MAX_AUDIO = 12 * 1024 * 1024;
 const receiptSchema = z.object({
   url: z.string().url(),
@@ -149,7 +155,12 @@ export function makeMmlNarration(
               method: "tools/call",
               params: {
                 name: "previewVoiceover",
-                arguments: { provider: "elevenlabs", model: MODEL, text },
+                arguments: {
+                  provider: "elevenlabs",
+                  model: MODEL,
+                  voiceId: NARRATION_VOICES[language],
+                  text,
+                },
               },
             }),
             signal: AbortSignal.timeout(90000),

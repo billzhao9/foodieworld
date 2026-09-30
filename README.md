@@ -26,6 +26,8 @@ Each visitor can run one live session at a time, with a maximum of two across th
 
 ## Sound and bilingual commentary
 
+Narration explicitly selects a language-matched voice: Mandarin **Jun** and English **Laura**. Server-only `NARRATION_VOICE_ZH` and `NARRATION_VOICE_EN` settings can override these catalogue voice IDs. Voice changes also change the audio cache namespace, so old default-voice recordings are not reused for new narration. Saved videos keep their original soundtrack. MML ONE's `readAudioVoices` tool lists catalogue voices; its language filter can still include account voices in other languages, so check the voice's native-language and accent metadata before selecting one.
+
 Visko receives a separate sound-effects prompt for animal calls and cooking sounds. Production host commentary uses MML ONE's enterprise-authenticated `previewVoiceover` tool with ElevenLabs Flash v2.5. Mandarin and English speech are mixed into live playback and the recorded video. The enterprise key is read only by the server; browser clients never receive it.
 
 Switching languages stops the previous narration and plays the corresponding language. Background audio is lowered during speech. Sound is enabled by default; if the browser blocks playback, tap the sound control to unlock it. Muting affects local listening only—the recording retains its audio.

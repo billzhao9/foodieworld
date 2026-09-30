@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../server/db";
 import type { Config } from "../server/config";
-import { makeMmlNarration, narrationMimeType } from "../server/mml-narration";
+import { makeMmlNarration, narrationMimeType, NARRATION_VOICES, MML_NARRATION_NAMESPACE } from "../server/mml-narration";
 const config = {
   baseUrl: "https://mmlone.com",
   apiKey: "secret-test-key",
@@ -69,6 +69,12 @@ describe("MML narration receipts", () => {
       Authorization: "Bearer secret-test-key",
       Accept: "application/json, text/event-stream",
     });
+    expect(JSON.parse(posts[0]![1]!.body as string).params.arguments.voiceId).toBe(NARRATION_VOICES.zh);
+    expect(JSON.parse(posts[1]![1]!.body as string).params.arguments.voiceId).toBe(NARRATION_VOICES.en);
+    expect(NARRATION_VOICES.zh).not.toBe(NARRATION_VOICES.en);
+    expect(MML_NARRATION_NAMESPACE).toContain(NARRATION_VOICES.zh);
+    expect(MML_NARRATION_NAMESPACE).toContain(NARRATION_VOICES.en);
+    expect(MML_NARRATION_NAMESPACE).not.toContain(':default');
     for (const call of fetcher.mock.calls.filter(
       (call) => call[1]?.method !== "POST",
     ))
