@@ -84,6 +84,7 @@ export class Narrations {
     private db: Database,
     private crafts: Crafts,
     private synthesize: NarrationSynthesizer = synthesizeLocalNarration,
+    private cacheNamespace = "macos-v1",
   ) {}
   async get(
     craftId: string,
@@ -96,7 +97,7 @@ export class Narrations {
     if (!entry) throw new ApiError("NOT_READY", 409);
     const text = narrationText(entry, language);
     const key = createHash("sha256")
-      .update(`macos-v1:${language}:${text}`)
+      .update(`${this.cacheNamespace}:${language}:${text}`)
       .digest("hex");
     const saved = await this.db.pool.query(
       "SELECT audio FROM fw_narrations WHERE id=$1",

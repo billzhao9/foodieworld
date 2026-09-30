@@ -12,6 +12,7 @@ export class Database {
   }
   async migrate() {
     await this.pool.query(`
+ CREATE TABLE IF NOT EXISTS fw_voice_requests (key text PRIMARY KEY,state text NOT NULL CHECK (state IN ('pending','done','unknown')),url text,storage_id text,error text,created_at timestamptz NOT NULL DEFAULT now());
  CREATE TABLE IF NOT EXISTS fw_narrations (id text PRIMARY KEY,audio bytea NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
  CREATE TABLE IF NOT EXISTS fw_records (id text PRIMARY KEY,owner text NOT NULL,data jsonb NOT NULL,updated_at timestamptz NOT NULL DEFAULT now());
  CREATE TABLE IF NOT EXISTS fw_live (id text PRIMARY KEY,owner text NOT NULL UNIQUE,craft_id text NOT NULL,request_id text NOT NULL,upstream_id text,expires_at bigint NOT NULL,heartbeat_at bigint NOT NULL,status text NOT NULL);

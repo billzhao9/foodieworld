@@ -1,3 +1,4 @@
+import { MML_NARRATION_NAMESPACE } from "./mml-narration";
 import { cookwareSchema } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { Narrations, type NarrationSynthesizer } from "./narration";
@@ -47,7 +48,15 @@ export function createApp(
   synthesizer?: NarrationSynthesizer,
 ) {
   const crafts = new Crafts(db, upstream);
-  const narrations = new Narrations(db, crafts, synthesizer);
+  const narrations = new Narrations(
+    db,
+    crafts,
+    synthesizer,
+    process.env.NARRATION_PROVIDER === "mmlone" ||
+      process.env.NODE_ENV === "production"
+      ? MML_NARRATION_NAMESPACE
+      : "macos-v1",
+  );
   const sessions = new LiveSessions(db, upstream, crafts, config.environment);
   const app = new Hono<{ Variables: { owner: string } }>();
   app.use("/api/*", async (c, next) => {
@@ -56,16 +65,24 @@ export function createApp(
     c.header("Referrer-Policy", "same-origin");
     if (!["GET", "HEAD"].includes(c.req.method)) {
       const origin = c.req.header("origin");
-      if (
-        origin &&
-        new URL(origin).host !== c.req.header("host") &&
-        ![
-          "http://localhost:5174",
-          "http://127.0.0.1:5174",
-          ...(process.env.APP_ORIGINS || "").split(","),
-        ].includes(origin)
-      )
-        throw new ApiError("INVALID_ORIGIN", 403);
+      if (origin) {
+        const allowed =
+          process.env.NODE_ENV === "production" ||
+          (config.environment === "production" &&
+            process.env.NODE_ENV !== "development")
+            ? ["https://foodieworld.mmlone.com"]
+            : [
+                new URL(c.req.url).origin,
+                "http://localhost:5174",
+                "http://127.0.0.1:5174",
+                ...(process.env.APP_ORIGINS || "")
+                  .split(",")
+                  .map((value) => value.trim())
+                  .filter(Boolean),
+              ];
+        if (!allowed.includes(origin))
+          throw new ApiError("INVALID_ORIGIN", 403);
+      }
     }
     await next();
   });
@@ -207,7 +224,11 @@ export function createApp(
       body.actionId,
     );
     return new Response(new Uint8Array(audio), {
-      headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" },
+      headers: {
+        "Content-Type":
+          audio.toString("ascii", 0, 4) === "RIFF" ? "audio/wav" : "audio/mpeg",
+        "Cache-Control": "no-store",
+      },
     });
   });
   app.get("/api/crafts/:id/image", async (c) => {

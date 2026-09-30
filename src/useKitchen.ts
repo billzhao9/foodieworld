@@ -266,7 +266,7 @@ export function useKitchen() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ language, ...(actionId ? { actionId } : {}) }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(120000),
     });
     if (!response.ok) throw new RequestError("NARRATION_UNAVAILABLE");
     return response.arrayBuffer();

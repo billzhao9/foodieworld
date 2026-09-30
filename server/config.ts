@@ -14,14 +14,31 @@ export function loadConfig() {
       };
   if (!existsSync(file))
     writeFileSync(file, JSON.stringify(access), { mode: 0o600 });
+  const baseUrl = process.env.MMLONE_BASE_URL || "http://127.0.0.1:3000";
+  const upstream = new URL(baseUrl);
+  const production = process.env.NODE_ENV === "production";
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
+    upstream.hostname,
+  );
+  if (
+    upstream.username ||
+    upstream.password ||
+    upstream.search ||
+    upstream.hash ||
+    upstream.pathname !== "/" ||
+    (upstream.protocol !== "https:" &&
+      !(upstream.protocol === "http:" && loopback && !production))
+  ) {
+    throw new Error("INVALID_UPSTREAM_CONFIGURATION");
+  }
   return {
     password: process.env.APP_PASSWORD || access.password,
     secret: process.env.APP_SESSION_SECRET || access.secret,
     databaseUrl: process.env.DATABASE_URL || "",
-    baseUrl: process.env.MMLONE_BASE_URL || "http://127.0.0.1:3000",
+    baseUrl,
     environment: process.env.MMLONE_ENVIRONMENT || "development",
     apiKey: process.env.MMLONE_API_KEY || "",
-    secure: process.env.SECURE_COOKIES === "true",
+    secure: production || process.env.SECURE_COOKIES === "true",
     port: Number(process.env.PORT || 4174),
     host: process.env.HOST || "0.0.0.0",
   };

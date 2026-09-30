@@ -26,11 +26,13 @@ Each visitor can run one live session at a time, with a maximum of two across th
 
 ## Sound and bilingual commentary
 
-Visko receives a separate sound-effects prompt for animal calls and cooking sounds. Host commentary is synthesized as actual WAV speech using the local macOS **Tingting** voice for Mandarin and **Samantha** for English, then mixed into both live playback and the recording.
+Visko receives a separate sound-effects prompt for animal calls and cooking sounds. Production host commentary uses MML ONE's enterprise-authenticated `previewVoiceover` tool with ElevenLabs Flash v2.5. Mandarin and English speech are mixed into live playback and the recorded video. The enterprise key is read only by the server; browser clients never receive it.
 
 Switching languages stops the previous narration and plays the corresponding language. Background audio is lowered during speech. Sound is enabled by default; if the browser blocks playback, tap the sound control to unlock it. Muting affects local listening only—the recording retains its audio.
 
-Narration is cached in PostgreSQL. Previously paid creations use compatible fallback lines where necessary, without regenerating their opening images. **Narration currently requires the local macOS service. A cloud TTS integration is needed before deploying this feature on Linux.** Visko's imitation of human speech is not used as a reliable Mandarin voice.
+Narration audio and synthesis receipts are stored in PostgreSQL. Each line is claimed before its paid synthesis call. An uncertain result is not automatically resubmitted; when a successful audio URL has been saved, a failed download can be retried without synthesizing again. Audio downloads accept bounded, validated Convex Storage responses. Previously paid creations use compatible fallback lines where necessary, without regenerating their opening images.
+
+Set `NARRATION_PROVIDER=mmlone` for cloud speech on Linux or macOS. Production mode selects MML ONE automatically. Local development can use macOS **Tingting** for Mandarin and **Samantha** for English by leaving the provider as `local`. Visko's imitation of human speech is not used as a reliable Mandarin voice.
 
 ## Record, collect, and share
 
@@ -71,7 +73,7 @@ pnpm start
 
 Integration tests run in an isolated temporary database schema. They are skipped if a test database is not configured.
 
-Build before starting production mode. The server serves both the frontend and the API. Set `SECURE_COOKIES=true` for HTTPS. Additional trusted origins can be specified as a comma-separated list in `APP_ORIGINS`.
+Build before starting production mode. Set `NODE_ENV=production`, `MMLONE_BASE_URL=https://mmlone.com`, `MMLONE_ENVIRONMENT=production`, and `NARRATION_PROVIDER=mmlone` in the private server environment. Production requires an HTTPS upstream, forces secure session cookies, and restricts browser mutations to `https://foodieworld.mmlone.com`. The server serves both the frontend and the API. Set `SECURE_COOKIES=true` when serving development over HTTPS. Additional development origins can be specified as a comma-separated list in `APP_ORIGINS`; production ignores this override.
 
 The application uses Vue 3, TypeScript, Vite, a Hono server, PostgreSQL, and the Reactor SDK. Automated checks cover application behavior and data contracts; visual quality, ingredient fidelity, and continuity still require watching the generated output.
 

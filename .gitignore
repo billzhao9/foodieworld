@@ -28,3 +28,18 @@ SKILL.md
 *方案*.md
 docs/ai/
 plans/
+
+# Server credentials, local environment helpers, and deployment archives
+*.env
+.envrc
+.direnv/
+.secrets/
+credentials/
+credentials.json
+.npmrc
+.wrangler/
+release*.tgz
+release*.tar.gz
+release*.zip
+# Keep the reviewed, placeholder-only setup template tracked.
+!.env.example

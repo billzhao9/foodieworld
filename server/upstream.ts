@@ -8,6 +8,22 @@ export class ApiError extends Error {
     super(code);
   }
 }
+// Only documented, user-actionable codes may cross the upstream trust boundary.
+const publicUpstreamCodes = new Set([
+  "RATE_LIMITED",
+  "rate_limited",
+  "INSUFFICIENT_BALANCE",
+  "insufficient_balance",
+  "invalid_key",
+  "UNAUTHORIZED",
+  "agent_server_warming_up",
+  "UPSTREAM_UNREACHABLE",
+]);
+export function sanitizeUpstreamCode(code: unknown): string {
+  return typeof code === "string" && publicUpstreamCodes.has(code)
+    ? code
+    : "UPSTREAM_ERROR";
+}
 export type Upstream = (path: string, body?: unknown) => Promise<unknown>;
 export function makeUpstream(config: Config): Upstream {
   return async (path, body) => {
@@ -43,7 +59,7 @@ export function makeUpstream(config: Config): Upstream {
           ? value.data.error
           : value.data.error.code
         : "UPSTREAM_ERROR";
-      throw new ApiError(code, res.status);
+      throw new ApiError(sanitizeUpstreamCode(code), res.status);
     }
     return data;
   };
@@ -54,16 +70,14 @@ export async function generate<T>(
   prompt: string,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const raw = z
-    .object({ text: z.string() })
-    .parse(
-      await upstream("/text-generations", {
-        requestId,
-        prompt,
-        model: "gpt-5.4-mini",
-        maxOutputTokens: 1800,
-      }),
-    );
+  const raw = z.object({ text: z.string() }).parse(
+    await upstream("/text-generations", {
+      requestId,
+      prompt,
+      model: "gpt-5.4-mini",
+      maxOutputTokens: 1800,
+    }),
+  );
   let parsed: unknown;
   try {
     parsed = JSON.parse(

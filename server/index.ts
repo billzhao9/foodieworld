@@ -1,3 +1,4 @@
+import { makeMmlNarration } from "./mml-narration";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { loadConfig } from "./config";
@@ -6,7 +7,12 @@ import { createApp } from "./app";
 const config = loadConfig();
 const db = new Database(config.databaseUrl);
 await db.migrate();
-const { app, cleanup } = createApp(config, db);
+const narrator =
+  process.env.NARRATION_PROVIDER === "mmlone" ||
+  process.env.NODE_ENV === "production"
+    ? makeMmlNarration(config, db)
+    : undefined;
+const { app, cleanup } = createApp(config, db, undefined, narrator);
 app.use("/*", serveStatic({ root: "./dist" }));
 app.get("*", serveStatic({ path: "./dist/index.html" }));
 let cleaning = false;
