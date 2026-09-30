@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { combinations } from "../shared/combinations";
+import { cookware } from "../shared/cookware";
 import {
   BookOpen,
   Film,
@@ -29,6 +31,7 @@ import {
   Undo2,
   ChevronDown,
   ChevronUp,
+  CookingPot,
 } from "lucide-vue-next";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { ingredients, type IngredientCategory } from "../shared/catalog";
@@ -49,6 +52,8 @@ const {
   page,
   tab,
   selected,
+  selectedCookware,
+  activeCookware,
   stage,
   status,
   error,
@@ -88,6 +93,12 @@ const collectionItems = computed(() =>
   collectionMode.value === "gallery"
     ? favorites.value.filter((item) => item.hasVideo)
     : favorites.value,
+);
+const selectedCookwareItem = computed(() =>
+  cookware.find((item) => item.id === selectedCookware.value),
+);
+const activeCookwareItem = computed(() =>
+  cookware.find((item) => item.id === activeCookware.value),
 );
 const basket = ref<string[]>([]);
 const basketExpanded = ref(false);
@@ -139,6 +150,14 @@ function randomizeBasket() {
   basket.value = selection;
   basketExpanded.value = false;
 }
+function chooseCombination(ids: readonly string[]) {
+  basketUndo.value = [...basket.value];
+  basket.value = [...ids];
+  basketExpanded.value = false;
+  search.value = "";
+  basketCategory.value = "all";
+  cookwareSelected.value = false;
+}
 function undoRandomBasket() {
   if (basketUndo.value === null) return;
   basket.value = [...basketUndo.value];
@@ -151,6 +170,14 @@ function clearBasket() {
   basketExpanded.value = false;
 }
 const basketCategory = ref<IngredientCategory>("all");
+const cookwareSelected = ref(false);
+const filteredCookware = computed(() =>
+  cookware.filter((item) =>
+    `${item.name} ${item.nameEn}`
+      .toLowerCase()
+      .includes(search.value.toLowerCase()),
+  ),
+);
 const pantryCategory = ref<IngredientCategory>("all");
 function toggleBasket(id: string) {
   basketUndo.value = null;
@@ -364,8 +391,16 @@ async function addCustom() {
           <label v-if="tab === 'all'" class="search-field"
             ><Search :size="17" /><input
               v-model="search"
-              :placeholder="t('search')"
-              :aria-label="t('search')" /><button
+              :placeholder="
+                cookwareSelected
+                  ? l('搜索厨具', 'Search cookware')
+                  : t('search')
+              "
+              :aria-label="
+                cookwareSelected
+                  ? l('搜索厨具', 'Search cookware')
+                  : t('search')
+              " /><button
               v-if="search"
               @click="search = ''"
               :aria-label="l('清除搜索', 'Clear search')"
@@ -374,7 +409,16 @@ async function addCustom() {
           ></label>
         </div>
         <template v-if="tab === 'all'">
-          <IngredientCategories v-model="basketCategory" />
+          <IngredientCategories
+            v-model="basketCategory"
+            include-cookware
+            :cookware-selected="cookwareSelected"
+            @cookware="
+              cookwareSelected = true;
+              search = '';
+            "
+            @food="cookwareSelected = false"
+          />
           <div class="basket-intro">
             <span><Sparkles :size="14" />{{ basketHint }}</span
             ><span
@@ -387,6 +431,32 @@ async function addCustom() {
             </button>
             <p>{{ t("basketRandomHint") }}</p>
           </div>
+          <details class="combination-picker">
+            <summary>
+              {{ l("灵感组合 · 中西厨房", "Inspiration · East meets West")
+              }}<span>{{
+                l(`${combinations.length}款`, `${combinations.length} picks`)
+              }}</span>
+            </summary>
+            <p>
+              {{
+                l(
+                  "点选会替换食材篮，可撤销，也可以继续加减。",
+                  "Pick a starting mix to replace your basket. Undo it or make it your own.",
+                )
+              }}
+            </p>
+            <div class="combination-grid">
+              <button
+                v-for="mix in combinations"
+                :key="mix.id"
+                @click="chooseCombination(mix.ingredients)"
+              >
+                <span aria-hidden="true">{{ mix.emoji }}</span
+                >{{ l(mix.name, mix.nameEn) }}
+              </button>
+            </div>
+          </details>
           <div class="basket-tray">
             <div class="basket-tray-content">
               <div class="basket-tray-top">
@@ -399,6 +469,14 @@ async function addCustom() {
                   {{ t("clear") }}
                 </button>
               </div>
+              <span class="basket-cookware-summary"
+                ><CookingPot :size="14" />{{ l("厨具", "Cookware") }} ·
+                {{
+                  selectedCookwareItem
+                    ? `${selectedCookwareItem.emoji} ${l(selectedCookwareItem.name, selectedCookwareItem.nameEn)}`
+                    : l("自动选择", "Automatic")
+                }}</span
+              >
               <div
                 v-if="basket.length"
                 id="selected-basket-items"
@@ -459,7 +537,53 @@ async function addCustom() {
           >
             {{ basketLimitHint }}
           </p>
-          <div v-if="filteredIngredients.length" class="basket-grid">
+          <div
+            v-if="cookwareSelected"
+            class="basket-grid cookware-grid"
+            role="group"
+            :aria-label="l('厨具类别', 'Cookware options')"
+          >
+            <button
+              class="cookware-auto"
+              :class="{ chosen: !selectedCookware }"
+              :aria-pressed="!selectedCookware"
+              :disabled="busy || stage === 'live'"
+              @click="selectedCookware = undefined"
+            >
+              <Sparkles :size="23" /><span
+                ><strong>{{ l("自动选择", "Automatic") }}</strong
+                ><small>{{
+                  l(
+                    "交给厨房搭配合适的厨具",
+                    "Let the kitchen choose the right tool",
+                  )
+                }}</small></span
+              ><Check
+                v-if="!selectedCookware"
+                class="cookware-check"
+                :size="15"
+              />
+            </button>
+            <button
+              v-for="item in filteredCookware"
+              :key="item.id"
+              :class="{ chosen: selectedCookware === item.id }"
+              :aria-pressed="selectedCookware === item.id"
+              :disabled="busy || stage === 'live'"
+              @click="selectedCookware = item.id"
+            >
+              <span class="cookware-emoji" aria-hidden="true">{{
+                item.emoji
+              }}</span
+              ><span>{{ l(item.name, item.nameEn) }}</span
+              ><Check
+                v-if="selectedCookware === item.id"
+                class="cookware-check"
+                :size="14"
+              />
+            </button>
+          </div>
+          <div v-else-if="filteredIngredients.length" class="basket-grid">
             <button
               v-for="(ingredient, index) in filteredIngredients"
               :key="ingredient.id"
@@ -563,6 +687,33 @@ async function addCustom() {
           </div>
           <span class="lab-sticker"><Moon :size="22" /></span>
         </section>
+        <div class="lab-cookware">
+          <div>
+            <CookingPot :size="16" /><span>{{
+              l("本轮厨具", "This creation’s cookware")
+            }}</span
+            ><strong
+              ><span
+                v-if="activeCookwareItem"
+                class="cookware-emoji"
+                aria-hidden="true"
+                >{{ activeCookwareItem.emoji }}</span
+              >{{
+                activeCookwareItem
+                  ? l(activeCookwareItem.name, activeCookwareItem.nameEn)
+                  : l("自动选择", "Automatic")
+              }}</strong
+            >
+          </div>
+          <p>
+            {{
+              l(
+                "本轮固定；返回食材篮后可为下一锅更换。",
+                "Fixed for this creation. Choose another in the basket for your next dish.",
+              )
+            }}
+          </p>
+        </div>
         <div class="lab-layout">
           <section class="cooking-area">
             <div class="video-stage" :class="{ live: stage === 'live' }">

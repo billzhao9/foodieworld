@@ -128,8 +128,8 @@ const copy: Record<string, [string, string]> = {
     "Picks across the entire pantry, regardless of search or category. Replaces your basket; you can undo it.",
   ],
   basketRandomApplied: [
-    "已换成20种随机食材。",
-    "Your basket now has 20 random ingredients.",
+    "食材组合已替换，可继续自由增减。",
+    "Basket replaced. Keep adding or removing ingredients.",
   ],
   basketUndo: ["撤销替换", "Undo replacement"],
   basketExpand: ["展开全部（{count}种）", "Show all {count}"],

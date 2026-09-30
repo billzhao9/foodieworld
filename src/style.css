@@ -2704,3 +2704,192 @@ button svg {
     font-size: 16px;
   }
 }
+
+.combination-picker {
+  border: 1px solid #59406b;
+  border-radius: 16px;
+  padding: 0 14px;
+  margin-bottom: 16px;
+  background: #281c3e;
+}
+.combination-picker summary {
+  min-height: 52px;
+  padding: 15px 0;
+  cursor: pointer;
+  color: #f3d28a;
+  font-size: 13px;
+}
+.combination-picker summary > span {
+  float: right;
+  color: #bca8ce;
+  font-size: 11px;
+}
+.combination-picker > p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #bca8ce;
+  margin-bottom: 12px;
+}
+.combination-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  padding-bottom: 14px;
+}
+.combination-grid button {
+  min-height: 52px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #3c2949;
+  font-size: 12px;
+  text-align: left;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.combination-grid button > span {
+  margin-right: 7px;
+}
+.cookware-emoji {
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 24px;
+  line-height: 1.3;
+}
+.cookware-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 2px 5px 3px 1px;
+}
+.cookware-grid > button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 64px;
+  padding: 11px 21px 11px 11px;
+  text-align: left;
+  border: 1px solid #654973;
+  border-radius: 12px;
+  background: #3d2b4c;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.cookware-grid > button.chosen {
+  border-color: #e798c2;
+  background: #573652;
+  color: #ffe0ee;
+}
+.cookware-grid > button:not(:disabled):hover {
+  border-color: #d8a0c4;
+  background: #4e3457;
+}
+.cookware-grid > .cookware-auto {
+  grid-column: 1/-1;
+  min-height: 70px;
+  color: #efd8e9;
+}
+.cookware-auto > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cookware-auto strong {
+  font-weight: 600;
+}
+.cookware-auto small {
+  font-size: 10px;
+  color: #bda6cb;
+}
+.cookware-check {
+  position: absolute;
+  top: 8px;
+  right: 7px;
+  color: #ffb5d7;
+}
+.lab-cookware {
+  margin: -5px 0 20px;
+  padding: 12px 14px;
+  border: 1px solid #62496f;
+  border-radius: 13px;
+  background: #2c203e;
+  min-width: 0;
+}
+.lab-cookware > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: #c7acd5;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.lab-cookware strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: #f0c7dd;
+  font-weight: 600;
+}
+.lab-cookware .cookware-emoji {
+  font-size: 19px;
+}
+.lab-cookware > p {
+  font-size: 9px;
+  line-height: 1.7;
+  color: #a78eb9;
+  margin-top: 5px;
+}
+@media (max-width: 760px) {
+  .cookware-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .cookware-grid > button {
+    font-size: 10px;
+    min-height: 68px;
+    gap: 7px;
+    padding: 10px 19px 10px 9px;
+  }
+  .cookware-grid .cookware-emoji {
+    font-size: 23px;
+    flex-shrink: 0;
+  }
+  .cookware-auto small {
+    font-size: 9px;
+  }
+  .lab-cookware {
+    margin-bottom: 18px;
+  }
+  .lab-cookware > p {
+    font-size: 9px;
+  }
+}
+
+.basket-cookware-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 3px 0 10px;
+  padding: 5px 9px;
+  border: 1px solid #75506d;
+  border-radius: 10px;
+  background: #3a2948;
+  color: #e8bfdb;
+  font-size: 10px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.basket-cookware-summary svg {
+  flex-shrink: 0;
+}
+.cookware-grid > button:focus-visible {
+  outline: 2px solid #7fe3c4;
+  outline-offset: 2px;
+}

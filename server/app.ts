@@ -1,3 +1,4 @@
+import { cookwareSchema } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { Narrations, type NarrationSynthesizer } from "./narration";
 import { Hono } from "hono";
@@ -20,6 +21,7 @@ const uuid = z.string().uuid();
 const metaSchema = z.object({
   id: uuid,
   dishId: z.string().max(100),
+  cookware: cookwareSchema,
   baseIngredients: z
     .array(z.string().max(100))
     .max(MAX_BASE_INGREDIENTS)
@@ -171,6 +173,7 @@ export function createApp(
     const body = z
       .object({
         id: uuid,
+        cookware: cookwareSchema,
         ingredients: z
           .array(z.string().trim().min(1).max(80))
           .min(1)
@@ -178,7 +181,12 @@ export function createApp(
       })
       .parse(await c.req.json());
     return c.json(
-      await crafts.create(body.id, c.get("owner"), body.ingredients),
+      await crafts.create(
+        body.id,
+        c.get("owner"),
+        body.ingredients,
+        body.cookware,
+      ),
     );
   });
   app.post("/api/crafts/:id/prepare", async (c) =>

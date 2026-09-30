@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CookwareId } from "./cookware";
 const audioPromptFields = {
   // Defaults preserve previously purchased text receipts and stored crafts.
   audioPromptZh: z.string().max(1600).default(""),
@@ -38,6 +39,7 @@ export interface SavedCreation {
   id: string;
   dishId: string;
   baseIngredients?: string[];
+  cookware?: CookwareId;
   title: string;
   titleEn?: string;
   description: string;

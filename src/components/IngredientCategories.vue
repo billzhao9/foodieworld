@@ -3,9 +3,14 @@ import {
   ingredientCategories,
   type IngredientCategory,
 } from "../../shared/catalog";
-import { t } from "../i18n";
+import { localized as l, t } from "../i18n";
 const category = defineModel<IngredientCategory>({ required: true });
-defineProps<{ compact?: boolean }>();
+defineProps<{
+  compact?: boolean;
+  includeCookware?: boolean;
+  cookwareSelected?: boolean;
+}>();
+const emit = defineEmits<{ cookware: []; food: [] }>();
 const labels: Record<IngredientCategory, string> = {
   all: "categoryAll",
   vegetables: "categoryVegetables",
@@ -26,11 +31,22 @@ const labels: Record<IngredientCategory, string> = {
     <button
       v-for="item in ingredientCategories"
       :key="item"
-      :class="{ active: category === item }"
-      :aria-pressed="category === item"
-      @click="category = item"
+      :class="{ active: !cookwareSelected && category === item }"
+      :aria-pressed="!cookwareSelected && category === item"
+      @click="
+        category = item;
+        emit('food');
+      "
     >
       {{ t(labels[item]) }}
+    </button>
+    <button
+      v-if="includeCookware"
+      :class="{ active: cookwareSelected }"
+      :aria-pressed="!!cookwareSelected"
+      @click="emit('cookware')"
+    >
+      {{ l("厨具", "Cookware") }}
     </button>
   </div>
 </template>

@@ -1,3 +1,4 @@
+import { cookwareSchema } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { locale } from "./i18n";
@@ -20,6 +21,7 @@ import { saveCreation, listCreations, getVideo, getImage } from "./lib/storage";
 import { z } from "zod";
 const activeCraftKey = "foodieworld.activeCraftId";
 const restoredCraftSchema = z.object({
+  cookware: cookwareSchema,
   baseIngredients: z.array(z.string()).min(1).max(MAX_BASE_INGREDIENTS),
   opening: openingSchema.optional(),
   imageJob: z.string().optional(),
@@ -191,6 +193,8 @@ export function useKitchen() {
     | "stopped"
     | "error"
   >("idle");
+  const selectedCookware = ref<z.infer<typeof cookwareSchema>>();
+  const activeCookware = ref<z.infer<typeof cookwareSchema>>();
   const errorCode = ref(""),
     statusCode = ref(""),
     openingUrl = ref(""),
@@ -336,6 +340,7 @@ export function useKitchen() {
     try {
       const state = restoredCraftSchema.parse(await api(`/crafts/${id}`));
       if (run !== generation) return;
+      selectedCookware.value = state.cookware;
       selectIngredients(state.baseIngredients);
       craftId = id;
       rememberCraft();
@@ -434,6 +439,7 @@ export function useKitchen() {
     if (!names.length || names.length > MAX_BASE_INGREDIENTS) return;
     reset();
     baseIngredients.value = [...names];
+    activeCookware.value = selectedCookware.value;
     selected.value = {
       id: "custom",
       name: "原创料理",
@@ -460,6 +466,7 @@ export function useKitchen() {
       return;
     if (stage.value === "stopped") {
       const names = [...baseIngredients.value];
+      selectedCookware.value = activeCookware.value;
       selectIngredients(names);
     }
     // Unlock sound in the click gesture, before image generation awaits.
@@ -479,7 +486,11 @@ export function useKitchen() {
       // whose response might be lost during a navigation or reload.
       rememberCraft();
       stage.value = "planning";
-      await api("/crafts", { id: runCraftId, ingredients: runIngredients });
+      await api("/crafts", {
+        id: runCraftId,
+        ingredients: runIngredients,
+        cookware: activeCookware.value,
+      });
       if (run !== generation) return;
       let data = await api<{ opening?: Opening; imageUrl?: string }>(
         `/crafts/${runCraftId}/prepare`,
@@ -761,6 +772,7 @@ export function useKitchen() {
           id: saveId,
           dishId: "custom",
           baseIngredients: [...baseIngredients.value],
+          cookware: activeCookware.value,
           title: opening.value.title,
           titleEn: opening.value.titleEn,
           description: opening.value.description,
@@ -782,6 +794,7 @@ export function useKitchen() {
     }
   }
   async function openFavorite(item: SavedCreation) {
+    selectedCookware.value = item.cookware;
     await stop();
     selectIngredients(
       item.baseIngredients?.length ? item.baseIngredients : ["魔法料理"],
@@ -881,6 +894,8 @@ export function useKitchen() {
     recordingSupported,
     recordingUrl,
     baseIngredients,
+    selectedCookware,
+    activeCookware,
     animals,
     login,
     logout,

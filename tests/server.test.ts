@@ -156,6 +156,81 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
     }
     expect(upstream).not.toHaveBeenCalled();
   });
+  it("persists cookware in crafts and favorites and rejects changed or invalid selections", async () => {
+    const upstream = vi.fn();
+    const { app } = createApp(config, db, upstream);
+    const cookie = await auth(app);
+    const id = randomUUID();
+    const create = (cookware?: string, craftId = id) =>
+      app.request("/api/crafts", {
+        method: "POST",
+        headers: { cookie },
+        body: JSON.stringify({
+          id: craftId,
+          ingredients: ["鸡腿", "面粉"],
+          cookware,
+        }),
+      });
+    expect((await create("air-fryer")).status).toBe(200);
+    expect((await create("air-fryer")).status).toBe(200);
+    expect(
+      (
+        await (
+          await app.request(`/api/crafts/${id}`, { headers: { cookie } })
+        ).json()
+      ).cookware,
+    ).toBe("air-fryer");
+    expect((await create("wok")).status).toBe(409);
+    expect((await create()).status).toBe(409);
+    const invalidId = randomUUID();
+    expect((await create("imaginary-cooker", invalidId)).status).toBe(400);
+    expect(
+      (await app.request(`/api/crafts/${invalidId}`, { headers: { cookie } }))
+        .status,
+    ).toBe(404);
+    const oldId = randomUUID();
+    expect((await create(undefined, oldId)).status).toBe(200);
+    expect((await create(undefined, oldId)).status).toBe(200);
+    const old = await (
+      await app.request(`/api/crafts/${oldId}`, { headers: { cookie } })
+    ).json();
+    expect(old).not.toHaveProperty("cookware");
+    expect((await create("skillet", oldId)).status).toBe(409);
+    const save = (cookware?: string) => {
+      const form = new FormData();
+      form.append(
+        "meta",
+        JSON.stringify({
+          id,
+          dishId: "custom",
+          title: "炸鸡",
+          description: "Crispy chicken",
+          ingredients: [],
+          createdAt: Date.now(),
+          cookware,
+        }),
+      );
+      form.append(
+        "image",
+        new Blob(["image"], { type: "image/png" }),
+        "image.png",
+      );
+      return app.request("/api/creations", {
+        method: "POST",
+        headers: { cookie },
+        body: form,
+      });
+    };
+    expect((await save("air-fryer")).status).toBe(200);
+    const list = await (
+      await app.request("/api/creations", { headers: { cookie } })
+    ).json();
+    expect(list.find((item: { id: string }) => item.id === id).cookware).toBe(
+      "air-fryer",
+    );
+    expect((await save("invalid")).status).toBe(400);
+    expect(upstream).not.toHaveBeenCalled();
+  });
   it("guards narration ownership, selects language and caches actual audio", async () => {
     const synthesize = vi.fn(async (_text: string, _language: "zh" | "en") =>
       Buffer.from("RIFF-test-WAVE"),

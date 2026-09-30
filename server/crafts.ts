@@ -1,3 +1,4 @@
+import { cookwareSchema, type CookwareId } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -18,6 +19,7 @@ import {
 } from "../shared/contracts";
 const craftSchema = z.object({
   dishId: z.string(),
+  cookware: cookwareSchema,
   baseIngredients: z.array(z.string()).min(1).max(MAX_BASE_INGREDIENTS),
   opening: openingSchema.optional(),
   imageJob: z.string().optional(),
@@ -73,7 +75,13 @@ export class Crafts {
       return out;
     });
   }
-  async create(id: string, owner: string, baseIngredients: string[]) {
+  async create(
+    id: string,
+    owner: string,
+    baseIngredients: string[],
+    cookware?: CookwareId,
+  ) {
+    cookware = cookwareSchema.parse(cookware);
     await this.db.pool.query(
       "INSERT INTO fw_records(id,owner,data) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
       [
@@ -82,6 +90,7 @@ export class Crafts {
         JSON.stringify({
           dishId: "custom",
           baseIngredients,
+          cookware,
           phase: "idle",
           additions: [],
           animals: [],
@@ -92,7 +101,9 @@ export class Crafts {
     );
     const craft = await this.read(id, owner);
     if (
-      JSON.stringify(craft.baseIngredients) !== JSON.stringify(baseIngredients)
+      JSON.stringify(craft.baseIngredients) !==
+        JSON.stringify(baseIngredients) ||
+      craft.cookware !== cookware
     )
       throw new ApiError("REQUEST_CONFLICT", 409);
     return craft;
@@ -118,6 +129,8 @@ export class Crafts {
           openingPrompt({
             name: "Original dish inspired by the selected ingredients",
             ingredients: craft.baseIngredients,
+            cookware: craft.cookware,
+            variationKey: id,
           }),
           openingSchema,
         );
