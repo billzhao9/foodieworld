@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import PantryArt from "./PantryArt.vue";
+import PantryExpansionArt from "./PantryExpansionArt.vue";
+import { ingredients } from "../../shared/catalog";
+const expansionArt = new Map(ingredients.filter(item => item.art).map(item => [item.id, item.art!]));
 const extendedIngredients = new Set(
   "carrot broccoli cabbage cucumber corn pumpkin spinach eggplant duck bacon sausage squid crab clam yogurt cream condensed-milk bread pasta oats rice-cake banana apple lemon mango pineapple blueberry watermelon salt sugar soy-sauce vinegar honey coffee mustard chili-oil".split(
     " ",
@@ -47,6 +50,7 @@ defineProps<{ id: string; magic?: boolean }>();
         stroke-linecap="round"
       />
     </g>
+    <PantryExpansionArt v-else-if="expansionArt.has(id)" :kind="expansionArt.get(id)!" :id="id" />
     <PantryArt v-else-if="extendedIngredients.has(id)" :id="id" />
     <g v-else-if="id === 'durian'">
       <path

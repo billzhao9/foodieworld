@@ -25,7 +25,12 @@ import {
   Star,
   Moon,
   PawPrint,
+  Shuffle,
+  Undo2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-vue-next";
+import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { ingredients, type IngredientCategory } from "../shared/catalog";
 import IngredientCategories from "./components/IngredientCategories.vue";
 import { locale, t, localized as l } from "./i18n";
@@ -85,12 +90,73 @@ const collectionItems = computed(() =>
     : favorites.value,
 );
 const basket = ref<string[]>([]);
+const basketExpanded = ref(false);
+const labIngredientsExpanded = ref(false);
+const shownLabIngredients = computed(() =>
+  labIngredientsExpanded.value
+    ? (selected.value?.ingredients ?? [])
+    : (selected.value?.ingredients ?? []).slice(0, 6),
+);
+const basketUndo = ref<string[] | null>(null);
+const basketPreviewCount = 6;
+const shownBasket = computed(() =>
+  basketExpanded.value
+    ? basket.value
+    : basket.value.slice(0, basketPreviewCount),
+);
+const basketHint = computed(() =>
+  t("basketHint").replace("{max}", String(MAX_BASE_INGREDIENTS)),
+);
+const basketLimitHint = computed(() =>
+  t("basketLimit").replace("{max}", String(MAX_BASE_INGREDIENTS)),
+);
+function shuffled<T>(values: T[]): T[] {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index--) {
+    const other = Math.floor(Math.random() * (index + 1));
+    [result[index], result[other]] = [result[other]!, result[index]!];
+  }
+  return result;
+}
+function randomizeBasket() {
+  const real = ingredients.filter((item) => item.kind === "real");
+  const categories = shuffled([...new Set(real.map((item) => item.category))]);
+  const pools = categories.map((category) =>
+    shuffled(
+      real.filter((item) => item.category === category).map((item) => item.id),
+    ),
+  );
+  const selection: string[] = [];
+  const target = Math.min(20, MAX_BASE_INGREDIENTS, real.length);
+  while (selection.length < target) {
+    for (const pool of pools) {
+      const id = pool.pop();
+      if (id) selection.push(id);
+      if (selection.length === target) break;
+    }
+  }
+  basketUndo.value = [...basket.value];
+  basket.value = selection;
+  basketExpanded.value = false;
+}
+function undoRandomBasket() {
+  if (basketUndo.value === null) return;
+  basket.value = [...basketUndo.value];
+  basketUndo.value = null;
+  basketExpanded.value = false;
+}
+function clearBasket() {
+  basket.value = [];
+  basketUndo.value = null;
+  basketExpanded.value = false;
+}
 const basketCategory = ref<IngredientCategory>("all");
 const pantryCategory = ref<IngredientCategory>("all");
 function toggleBasket(id: string) {
+  basketUndo.value = null;
   basket.value = basket.value.includes(id)
     ? basket.value.filter((x) => x !== id)
-    : basket.value.length < 6
+    : basket.value.length < MAX_BASE_INGREDIENTS
       ? [...basket.value, id]
       : basket.value;
 }
@@ -112,6 +178,7 @@ const filteredIngredients = computed(() =>
 );
 const password = ref("");
 const search = ref("");
+const pantrySearch = ref("");
 const pageIndex = ref(0);
 const ingredientKind = ref<"real" | "magic" | "animal">("real");
 const custom = ref("");
@@ -130,8 +197,23 @@ const pantry = computed(() =>
       i.kind === ingredientKind.value &&
       (ingredientKind.value === "magic" ||
         pantryCategory.value === "all" ||
-        i.category === pantryCategory.value),
+        i.category === pantryCategory.value) &&
+      `${i.name} ${i.nameEn}`
+        .toLowerCase()
+        .includes(pantrySearch.value.trim().toLowerCase()),
   ),
+);
+watch(selected, () => {
+  labIngredientsExpanded.value = false;
+});
+watch(ingredientKind, () => {
+  pantrySearch.value = "";
+});
+watch(
+  () => basket.value.length,
+  (count) => {
+    if (count <= basketPreviewCount) basketExpanded.value = false;
+  },
 );
 watch([search, tab, collectionMode], () => (pageIndex.value = 0));
 const dishName = (dish: { name: string; nameEn: string }) =>
@@ -294,9 +376,89 @@ async function addCustom() {
         <template v-if="tab === 'all'">
           <IngredientCategories v-model="basketCategory" />
           <div class="basket-intro">
-            <span><Sparkles :size="14" />{{ t("basketHint") }}</span
-            ><span>{{ basket.length }} <i>/</i> 6</span>
+            <span><Sparkles :size="14" />{{ basketHint }}</span
+            ><span
+              >{{ basket.length }} <i>/</i> {{ MAX_BASE_INGREDIENTS }}</span
+            >
           </div>
+          <div class="basket-tools">
+            <button class="random-basket-button" @click="randomizeBasket">
+              <Shuffle :size="17" />{{ t("basketRandom20") }}
+            </button>
+            <p>{{ t("basketRandomHint") }}</p>
+          </div>
+          <div class="basket-tray">
+            <div class="basket-tray-content">
+              <div class="basket-tray-top">
+                <span
+                  >{{ t("yourBasket")
+                  }}<small
+                    >{{ basket.length }} / {{ MAX_BASE_INGREDIENTS }}</small
+                  ></span
+                ><button v-if="basket.length" @click="clearBasket">
+                  {{ t("clear") }}
+                </button>
+              </div>
+              <div
+                v-if="basket.length"
+                id="selected-basket-items"
+                class="basket-selected"
+                :class="{ expanded: basketExpanded }"
+              >
+                <button
+                  v-for="id in shownBasket"
+                  :key="id"
+                  @click="toggleBasket(id)"
+                  :aria-label="`${t('basketRemove')} ${ingredientName(id)}`"
+                >
+                  {{ ingredientName(id) }}<X :size="13" />
+                </button>
+              </div>
+              <p v-else class="basket-placeholder">{{ t("basketEmpty") }}</p>
+              <div v-if="basket.length" class="basket-selection-tools">
+                <span>{{ t("basketRemoveHint") }}</span
+                ><button
+                  v-if="basket.length > basketPreviewCount"
+                  :aria-expanded="basketExpanded"
+                  aria-controls="selected-basket-items"
+                  @click="basketExpanded = !basketExpanded"
+                >
+                  <ChevronUp v-if="basketExpanded" :size="15" /><ChevronDown
+                    v-else
+                    :size="15"
+                  />{{
+                    basketExpanded
+                      ? t("basketCollapse")
+                      : t("basketExpand").replace(
+                          "{count}",
+                          String(basket.length),
+                        )
+                  }}
+                </button>
+              </div>
+              <div v-if="basketUndo !== null" class="basket-undo" role="status">
+                <span>{{ t("basketRandomApplied") }}</span
+                ><button @click="undoRandomBasket">
+                  <Undo2 :size="14" />{{ t("basketUndo") }}
+                </button>
+              </div>
+            </div>
+            <button
+              class="primary-button"
+              :disabled="!basket.length"
+              @click="enterLab"
+            >
+              <WandSparkles :size="18" />{{ t("basketStart")
+              }}<ArrowRight :size="17" />
+            </button>
+          </div>
+          <p
+            v-if="basket.length >= MAX_BASE_INGREDIENTS"
+            class="basket-limit-note"
+            role="status"
+          >
+            {{ basketLimitHint }}
+          </p>
           <div v-if="filteredIngredients.length" class="basket-grid">
             <button
               v-for="(ingredient, index) in filteredIngredients"
@@ -304,7 +466,10 @@ async function addCustom() {
               class="basket-ingredient"
               :class="{ chosen: basket.includes(ingredient.id) }"
               :aria-pressed="basket.includes(ingredient.id)"
-              :disabled="!basket.includes(ingredient.id) && basket.length >= 6"
+              :disabled="
+                !basket.includes(ingredient.id) &&
+                basket.length >= MAX_BASE_INGREDIENTS
+              "
               :style="{ '--card-delay': `${index * 15}ms` }"
               @click="toggleBasket(ingredient.id)"
             >
@@ -322,30 +487,6 @@ async function addCustom() {
             <Search :size="28" />
             <h2>{{ t("noResults") }}</h2>
             <p>{{ t("trySearch") }}</p>
-          </div>
-          <div class="basket-tray">
-            <div class="basket-tray-top">
-              <span
-                >{{ t("yourBasket")
-                }}<small>{{ basket.length }} / 6</small></span
-              ><button v-if="basket.length" @click="basket = []">
-                {{ t("clear") }}
-              </button>
-            </div>
-            <div v-if="basket.length" class="basket-selected">
-              <button v-for="id in basket" :key="id" @click="toggleBasket(id)">
-                {{ ingredientName(id) }}<X :size="12" />
-              </button>
-            </div>
-            <p v-else class="basket-placeholder">{{ t("basketEmpty") }}</p>
-            <button
-              class="primary-button"
-              :disabled="!basket.length"
-              @click="enterLab"
-            >
-              <WandSparkles :size="18" />{{ t("basketStart")
-              }}<ArrowRight :size="17" />
-            </button>
           </div>
         </template>
         <div
@@ -414,7 +555,7 @@ async function addCustom() {
           <div>
             <span class="eyebrow"><Sparkles :size="13" />{{ t("today") }}</span>
             <h1>{{ title || dishName(selected) }}</h1>
-            <p>
+            <p :class="{ 'lab-ingredient-summary': !openingUrl }">
               {{
                 description || l(selected.description, selected.descriptionEn)
               }}
@@ -546,11 +687,34 @@ async function addCustom() {
             </p>
             <div class="pot-notes">
               <span class="notes-label">{{ t("original") }}</span>
-              <div class="ingredient-chips">
-                <span v-for="id in selected.ingredients" :key="id">{{
+              <div
+                class="ingredient-chips base-ingredient-chips"
+                :class="{ expanded: labIngredientsExpanded }"
+                id="lab-base-ingredients"
+              >
+                <span v-for="id in shownLabIngredients" :key="id">{{
                   ingredientName(id)
                 }}</span>
               </div>
+              <button
+                v-if="selected.ingredients.length > 6"
+                class="lab-ingredients-toggle"
+                :aria-expanded="labIngredientsExpanded"
+                aria-controls="lab-base-ingredients"
+                @click="labIngredientsExpanded = !labIngredientsExpanded"
+              >
+                <ChevronUp
+                  v-if="labIngredientsExpanded"
+                  :size="15"
+                /><ChevronDown v-else :size="15" />{{
+                  labIngredientsExpanded
+                    ? t("basketCollapse")
+                    : t("basketExpand").replace(
+                        "{count}",
+                        String(selected.ingredients.length),
+                      )
+                }}
+              </button>
               <template v-if="additions.length"
                 ><span class="notes-label additions-label"
                   ><Sparkles :size="12" />{{ t("added") }}</span
@@ -606,6 +770,19 @@ async function addCustom() {
                 <PawPrint :size="13" />{{ t("animalTab") }}
               </button>
             </div>
+            <label
+              v-if="ingredientKind !== 'animal'"
+              class="pantry-search search-field"
+              ><Search :size="17" /><input
+                v-model="pantrySearch"
+                :placeholder="t('pantrySearch')"
+                :aria-label="t('pantrySearch')" /><button
+                v-if="pantrySearch"
+                @click="pantrySearch = ''"
+                :aria-label="t('clearSearch')"
+              >
+                <X :size="16" /></button
+            ></label>
             <IngredientCategories
               v-if="ingredientKind === 'real'"
               v-model="pantryCategory"
@@ -617,7 +794,7 @@ async function addCustom() {
               :pending="adding"
               :invite="addAnimal"
             />
-            <div v-else class="pantry-grid">
+            <div v-else-if="pantry.length" class="pantry-grid">
               <button
                 v-for="ingredient in pantry"
                 :key="ingredient.id"
@@ -632,6 +809,7 @@ async function addCustom() {
                 ><Plus :size="13" class="ingredient-plus" />
               </button>
             </div>
+            <p v-else class="pantry-empty">{{ t("pantryNoResults") }}</p>
             <form
               v-if="ingredientKind !== 'animal'"
               class="custom-ingredient"

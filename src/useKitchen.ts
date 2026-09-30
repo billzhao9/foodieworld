@@ -1,3 +1,4 @@
+import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { locale } from "./i18n";
 import { type Dish, ingredients } from "../shared/catalog";
@@ -19,7 +20,7 @@ import { saveCreation, listCreations, getVideo, getImage } from "./lib/storage";
 import { z } from "zod";
 const activeCraftKey = "foodieworld.activeCraftId";
 const restoredCraftSchema = z.object({
-  baseIngredients: z.array(z.string()).min(1).max(6),
+  baseIngredients: z.array(z.string()).min(1).max(MAX_BASE_INGREDIENTS),
   opening: openingSchema.optional(),
   imageJob: z.string().optional(),
   imageUrl: z.string().optional(),
@@ -430,7 +431,7 @@ export function useKitchen() {
     recordingUrl.value = "";
   }
   function selectIngredients(names: string[]) {
-    if (!names.length || names.length > 6) return;
+    if (!names.length || names.length > MAX_BASE_INGREDIENTS) return;
     reset();
     baseIngredients.value = [...names];
     selected.value = {
@@ -449,7 +450,7 @@ export function useKitchen() {
     page.value = "lab";
   }
   function selectDish(dish: Dish) {
-    selectIngredients(dish.ingredients.slice(0, 6));
+    selectIngredients(dish.ingredients);
   }
   async function start() {
     if (

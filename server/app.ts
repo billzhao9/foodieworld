@@ -1,3 +1,4 @@
+import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { Narrations, type NarrationSynthesizer } from "./narration";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -19,7 +20,10 @@ const uuid = z.string().uuid();
 const metaSchema = z.object({
   id: uuid,
   dishId: z.string().max(100),
-  baseIngredients: z.array(z.string().max(100)).max(6).optional(),
+  baseIngredients: z
+    .array(z.string().max(100))
+    .max(MAX_BASE_INGREDIENTS)
+    .optional(),
   title: z.string().max(100),
   titleEn: z.string().max(160).optional(),
   description: z.string().max(500),
@@ -167,7 +171,10 @@ export function createApp(
     const body = z
       .object({
         id: uuid,
-        ingredients: z.array(z.string().trim().min(1).max(80)).min(1).max(6),
+        ingredients: z
+          .array(z.string().trim().min(1).max(80))
+          .min(1)
+          .max(MAX_BASE_INGREDIENTS),
       })
       .parse(await c.req.json());
     return c.json(

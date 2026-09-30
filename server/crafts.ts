@@ -1,3 +1,4 @@
+import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Database } from "./db";
@@ -17,7 +18,7 @@ import {
 } from "../shared/contracts";
 const craftSchema = z.object({
   dishId: z.string(),
-  baseIngredients: z.array(z.string()).min(1).max(6),
+  baseIngredients: z.array(z.string()).min(1).max(MAX_BASE_INGREDIENTS),
   opening: openingSchema.optional(),
   imageJob: z.string().optional(),
   imageUrl: z.string().optional(),

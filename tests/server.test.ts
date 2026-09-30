@@ -1,3 +1,4 @@
+import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import {
   beforeAll,
   afterAll,
@@ -81,6 +82,80 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
     expect(r.status).toBe(200);
     return r.headers.get("set-cookie")!.split(";")[0];
   }
+  it("preserves large baskets across creation, retries, reload and metadata storage", async () => {
+    const upstream = vi.fn();
+    const { app } = createApp(config, db, upstream);
+    const cookie = await auth(app);
+    for (const count of [6, 20, MAX_BASE_INGREDIENTS]) {
+      const id = randomUUID();
+      const ingredients = Array.from(
+        { length: count },
+        (_, i) => `食材${i + 1}`,
+      );
+      const create = (values = ingredients) =>
+        app.request("/api/crafts", {
+          method: "POST",
+          headers: { cookie },
+          body: JSON.stringify({ id, ingredients: values }),
+        });
+      expect((await create()).status).toBe(200);
+      expect((await create()).status).toBe(200);
+      const restored = await app.request(`/api/crafts/${id}`, {
+        headers: { cookie },
+      });
+      expect(restored.status).toBe(200);
+      expect((await restored.json()).baseIngredients).toEqual(ingredients);
+      expect((await create([...ingredients].reverse())).status).toBe(409);
+      const form = new FormData();
+      form.append(
+        "meta",
+        JSON.stringify({
+          id,
+          dishId: "custom",
+          baseIngredients: ingredients,
+          title: "大锅狂想",
+          description: "large basket",
+          ingredients: [],
+          createdAt: Date.now(),
+        }),
+      );
+      form.append(
+        "image",
+        new Blob(["image"], { type: "image/png" }),
+        "image.png",
+      );
+      expect(
+        (
+          await app.request("/api/creations", {
+            method: "POST",
+            headers: { cookie },
+            body: form,
+          })
+        ).status,
+      ).toBe(200);
+      const list = await (
+        await app.request("/api/creations", { headers: { cookie } })
+      ).json();
+      expect(
+        list.find((item: { id: string }) => item.id === id).baseIngredients,
+      ).toEqual(ingredients);
+    }
+    for (const count of [0, MAX_BASE_INGREDIENTS + 1]) {
+      expect(
+        (
+          await app.request("/api/crafts", {
+            method: "POST",
+            headers: { cookie },
+            body: JSON.stringify({
+              id: randomUUID(),
+              ingredients: Array.from({ length: count }, (_, i) => `食材${i}`),
+            }),
+          })
+        ).status,
+      ).toBe(400);
+    }
+    expect(upstream).not.toHaveBeenCalled();
+  });
   it("guards narration ownership, selects language and caches actual audio", async () => {
     const synthesize = vi.fn(async (_text: string, _language: "zh" | "en") =>
       Buffer.from("RIFF-test-WAVE"),
@@ -163,10 +238,15 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
       .mockResolvedValueOnce({ jobId: "img1" });
     const crafts = new Crafts(db, up);
     const id = randomUUID();
-    await crafts.create(id, "owner", ["米饭", "鸡蛋"]);
+    const largeBasket = Array.from(
+      { length: MAX_BASE_INGREDIENTS },
+      (_, i) => `食材${i + 1}`,
+    );
+    await crafts.create(id, "owner", largeBasket);
     await crafts.prepare(id, "owner");
     await crafts.prepare(id, "owner");
     expect(up).toHaveBeenCalledTimes(2);
+    expect(up.mock.calls[0][1].prompt).toContain(JSON.stringify(largeBasket));
     await expect(crafts.create(id, "owner", ["牛肉"])).rejects.toThrow(
       "REQUEST_CONFLICT",
     );
