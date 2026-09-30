@@ -1699,15 +1699,26 @@ button svg {
   animation-delay: min(var(--card-delay), 150ms);
 }
 @media (max-width: 760px) {
-  .ingredient-categories {
-    margin-right: -20px;
-    padding-right: 20px;
-    gap: 7px;
+  .ingredient-categories,
+  .ingredient-categories.compact {
+    flex-wrap: wrap;
+    overflow: visible;
+    min-width: 0;
+    margin-right: 0;
+    padding: 4px 0;
+    gap: 8px;
   }
-  .ingredient-categories button {
-    min-height: 36px;
-    padding: 8px 12px;
-    font-size: 10px;
+  .ingredient-categories button,
+  .ingredient-categories.compact button {
+    min-height: 48px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    border-radius: 14px;
   }
   .ingredient-categories.compact {
     margin-right: 0;
@@ -2668,4 +2679,28 @@ button svg {
 .basket-tools + .basket-tray {
   margin-top: 12px;
   margin-bottom: 18px;
+}
+
+/* Keep long bilingual selections inside the phone's content column. */
+@media (max-width: 760px) {
+  .basket-selected button {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  .basket-selection-tools,
+  .basket-undo {
+    flex-wrap: wrap;
+  }
+  .basket-selection-tools > span {
+    max-width: 100%;
+  }
+  .basket-selection-tools > button,
+  .basket-undo > button {
+    max-width: 100%;
+    white-space: normal;
+  }
+  .catalog-toolbar > .search-field > input {
+    font-size: 16px;
+  }
 }
