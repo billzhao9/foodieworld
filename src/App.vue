@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import {
   BookOpen,
+  Film,
   Sparkles,
   Heart,
   Search,
@@ -28,6 +29,8 @@ import { ingredients, type IngredientCategory } from "../shared/catalog";
 import IngredientCategories from "./components/IngredientCategories.vue";
 import { locale, t, localized as l } from "./i18n";
 import { useKitchen } from "./useKitchen";
+import CreationCard from "./components/CreationCard.vue";
+import PublicCreation from "./components/PublicCreation.vue";
 import KitchenArt from "./components/KitchenArt.vue";
 import IngredientArt from "./components/IngredientArt.vue";
 const {
@@ -64,6 +67,16 @@ const {
   openFavorite,
   downloadRecording,
 } = useKitchen();
+const sharedToken = new URLSearchParams(window.location.search).get("share");
+const collectionMode = ref<"gallery" | "all">("gallery");
+const galleryCount = computed(
+  () => favorites.value.filter((item) => item.hasVideo).length,
+);
+const collectionItems = computed(() =>
+  collectionMode.value === "gallery"
+    ? favorites.value.filter((item) => item.hasVideo)
+    : favorites.value,
+);
 const basket = ref<string[]>([]);
 const basketCategory = ref<IngredientCategory>("all");
 const pantryCategory = ref<IngredientCategory>("all");
@@ -99,15 +112,21 @@ const busy = computed(() =>
   ["planning", "imaging", "connecting"].includes(stage.value),
 );
 const pageCount = computed(() =>
-  Math.max(1, Math.ceil(favorites.value.length / 6)),
+  Math.max(1, Math.ceil(collectionItems.value.length / 6)),
 );
 const shownFavorites = computed(() =>
-  favorites.value.slice(pageIndex.value * 6, pageIndex.value * 6 + 6),
+  collectionItems.value.slice(pageIndex.value * 6, pageIndex.value * 6 + 6),
 );
 const pantry = computed(() =>
-  ingredients.filter((i) => i.kind === ingredientKind.value && (ingredientKind.value === "magic" || pantryCategory.value === "all" || i.category === pantryCategory.value)),
+  ingredients.filter(
+    (i) =>
+      i.kind === ingredientKind.value &&
+      (ingredientKind.value === "magic" ||
+        pantryCategory.value === "all" ||
+        i.category === pantryCategory.value),
+  ),
 );
-watch([search, tab], () => (pageIndex.value = 0));
+watch([search, tab, collectionMode], () => (pageIndex.value = 0));
 const dishName = (dish: { name: string; nameEn: string }) =>
   l(dish.name, dish.nameEn);
 const ingredientName = (id: string) => {
@@ -150,7 +169,7 @@ async function addCustom() {
           <span :class="{ selected: locale === 'zh' }">中</span><i>/</i
           ><span :class="{ selected: locale === 'en' }">EN</span></button
         ><button
-          v-if="authenticated"
+          v-if="authenticated && !sharedToken"
           class="icon-button logout"
           @click="logout"
           :aria-label="t('logout')"
@@ -159,7 +178,8 @@ async function addCustom() {
         </button>
       </div>
     </header>
-    <main v-if="!authenticated" class="gate">
+    <PublicCreation v-if="sharedToken !== null" :token="sharedToken" />
+    <main v-else-if="!authenticated" class="gate">
       <div class="gate-illustration">
         <span class="orbit-label"><Star :size="12" /> {{ t("tagline") }}</span
         ><KitchenArt variant="witch" />
@@ -227,10 +247,26 @@ async function addCustom() {
                 ingredients.filter((i) => i.kind === "real").length
               }}</span></button
             ><button
-              :class="{ active: tab === 'favorites' }"
-              @click="tab = 'favorites'"
+              :class="{
+                active: tab === 'favorites' && collectionMode === 'gallery',
+              }"
+              @click="
+                tab = 'favorites';
+                collectionMode = 'gallery';
+              "
             >
-              <Heart :size="16" />{{ t("favorites")
+              <Film :size="16" />{{ t("gallery")
+              }}<span>{{ galleryCount }}</span></button
+            ><button
+              :class="{
+                active: tab === 'favorites' && collectionMode === 'all',
+              }"
+              @click="
+                tab = 'favorites';
+                collectionMode = 'all';
+              "
+            >
+              <Heart :size="16" />{{ t("allSaved")
               }}<span>{{ favorites.length }}</span>
             </button>
           </div>
@@ -307,33 +343,12 @@ async function addCustom() {
           v-else-if="tab === 'favorites' && shownFavorites.length"
           class="dish-grid"
         >
-          <button
+          <CreationCard
             v-for="item in shownFavorites"
             :key="item.id"
-            class="dish-card favorite-card"
-            @click="openFavorite(item)"
-          >
-            <div class="dish-picture">
-              <img
-                :src="item.imageUrl"
-                :alt="l(item.title, item.titleEn || item.title)"
-              /><span class="favorite-marker"
-                ><Heart :size="15" fill="currentColor"
-              /></span>
-            </div>
-            <div class="dish-info">
-              <span class="cuisine-label">{{ t("savedRecipe") }}</span>
-              <h2>{{ l(item.title, item.titleEn || item.title) }}</h2>
-              <p>
-                {{
-                  l(item.description, item.descriptionEn || item.description)
-                }}
-              </p>
-              <span class="card-link"
-                >{{ t("view") }}<ArrowRight :size="17"
-              /></span>
-            </div>
-          </button>
+            :item="item"
+            @open="openFavorite"
+          />
         </div>
         <div v-else class="empty-state">
           <div class="empty-icon">
@@ -342,8 +357,28 @@ async function addCustom() {
               :size="32"
             />
           </div>
-          <h2>{{ t(tab === "favorites" ? "emptySaved" : "noResults") }}</h2>
-          <p>{{ t(tab === "favorites" ? "emptySavedBody" : "trySearch") }}</p>
+          <h2>
+            {{
+              t(
+                tab === "favorites"
+                  ? collectionMode === "gallery"
+                    ? "emptyGallery"
+                    : "emptySaved"
+                  : "noResults",
+              )
+            }}
+          </h2>
+          <p>
+            {{
+              t(
+                tab === "favorites"
+                  ? collectionMode === "gallery"
+                    ? "emptyGalleryBody"
+                    : "emptySavedBody"
+                  : "trySearch",
+              )
+            }}
+          </p>
         </div>
         <div v-if="tab === 'favorites' && pageCount > 1" class="pagination">
           <button
@@ -530,7 +565,11 @@ async function addCustom() {
                 <Sparkles :size="13" />{{ t("magic") }}
               </button>
             </div>
-            <IngredientCategories v-if="ingredientKind === 'real'" v-model="pantryCategory" compact />
+            <IngredientCategories
+              v-if="ingredientKind === 'real'"
+              v-model="pantryCategory"
+              compact
+            />
             <div class="pantry-grid">
               <button
                 v-for="ingredient in pantry"

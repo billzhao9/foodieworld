@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import PantryArt from "./PantryArt.vue";
+const extendedIngredients = new Set(
+  "carrot broccoli cabbage cucumber corn pumpkin spinach eggplant duck bacon sausage squid crab clam yogurt cream condensed-milk bread pasta oats rice-cake banana apple lemon mango pineapple blueberry watermelon salt sugar soy-sauce vinegar honey coffee mustard chili-oil".split(
+    " ",
+  ),
+);
 defineProps<{ id: string; magic?: boolean }>();
 </script>
 <template>
@@ -41,26 +47,55 @@ defineProps<{ id: string; magic?: boolean }>();
         stroke-linecap="round"
       />
     </g>
+    <PantryArt v-else-if="extendedIngredients.has(id)" :id="id" />
     <g v-else-if="id === 'durian'">
-      <path d="m23 9 5-5 2 8 7-2 1 7 6 2-3 7 3 5-6 4-1 7-8-1-5 5-5-5-8 1-1-7-6-4 3-6-2-7 7-2 2-7Z" fill="#A8B675" />
+      <path
+        d="m23 9 5-5 2 8 7-2 1 7 6 2-3 7 3 5-6 4-1 7-8-1-5 5-5-5-8 1-1-7-6-4 3-6-2-7 7-2 2-7Z"
+        fill="#A8B675"
+      />
       <path d="M24 12C8 19 10 37 24 40c14-4 17-21 0-28" fill="#F2DB9C" />
       <path d="M24 16c-8 7-10 18-2 20 8-4 8-13 2-20" fill="#E7C271" />
-      <path d="m24 11 2-7" stroke="#A58261" stroke-width="4" stroke-linecap="round" />
+      <path
+        d="m24 11 2-7"
+        stroke="#A58261"
+        stroke-width="4"
+        stroke-linecap="round"
+      />
     </g>
     <g v-else-if="id === 'stinky-tofu'">
       <path d="m6 25 23-12 13 10v16l-24 7L6 37Z" fill="#827374" />
       <path d="m6 25 23-12 13 10-24 9Z" fill="#B9A394" />
       <path d="m18 32 24-9v16l-24 7Z" fill="#63585E" />
-      <path d="m20 22 9 3m-6-7 4 4" stroke="#AF7465" stroke-width="3" stroke-linecap="round" />
-      <path d="M15 15q-5-4 0-8m14 1q-5-4 0-7" stroke="#C6BC9D" stroke-width="2" stroke-linecap="round" />
-      <path d="m31 29 5 2m-11 5 4 2" stroke="#C0AB92" stroke-width="2" stroke-linecap="round" />
+      <path
+        d="m20 22 9 3m-6-7 4 4"
+        stroke="#AF7465"
+        stroke-width="3"
+        stroke-linecap="round"
+      />
+      <path
+        d="M15 15q-5-4 0-8m14 1q-5-4 0-7"
+        stroke="#C6BC9D"
+        stroke-width="2"
+        stroke-linecap="round"
+      />
+      <path
+        d="m31 29 5 2m-11 5 4 2"
+        stroke="#C0AB92"
+        stroke-width="2"
+        stroke-linecap="round"
+      />
     </g>
     <g v-else-if="id === 'century-egg'">
       <path d="M24 5C12 5 4 40 24 42S36 5 24 5" fill="#C5C0A7" />
       <path d="M24 9C15 9 8 37 24 39S34 9 24 9" fill="#6B574F" />
       <ellipse cx="24" cy="29" rx="9" ry="10" fill="#9CA486" />
       <ellipse cx="24" cy="30" rx="5" ry="6" fill="#7C8B72" />
-      <path d="m18 15-2 6m15 1 1 5" stroke="#C7AD85" stroke-width="2" stroke-linecap="round" />
+      <path
+        d="m18 15-2 6m15 1 1 5"
+        stroke="#C7AD85"
+        stroke-width="2"
+        stroke-linecap="round"
+      />
     </g>
     <g v-else-if="id === 'chocolate'">
       <path d="M9 6h27l4 4v32H9Z" fill="#875A50" />
@@ -68,7 +103,12 @@ defineProps<{ id: string; magic?: boolean }>();
       <path d="M22 7v31M10 17h25M10 28h25" stroke="#754D48" stroke-width="2" />
       <path d="M8 29 22 33l14-5 5 5v12H8Z" fill="#D6A5C5" />
       <path d="m8 29 14 4 14-5-3 9-10-1-10 4Z" fill="#F0D6E1" />
-      <path d="m13 10 5-1m8 1 5-1m-18 12 5-1m8 1 5-1" stroke="#D2A185" stroke-width="2" stroke-linecap="round" />
+      <path
+        d="m13 10 5-1m8 1 5-1m-18 12 5-1m8 1 5-1"
+        stroke="#D2A185"
+        stroke-width="2"
+        stroke-linecap="round"
+      />
     </g>
     <g v-else-if="id === 'egg'">
       <path d="M24 6C13 6 4 39 24 41S36 6 24 6" fill="#F5DEBD" />

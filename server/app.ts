@@ -1,13 +1,19 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomUUID,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { z } from "zod";
 import type { Config } from "./config";
 import { Database } from "./db";
 import { ApiError, makeUpstream, type Upstream } from "./upstream";
 import { Crafts } from "./crafts";
 import { LiveSessions } from "./live";
+import { mediaResponse } from "./media";
 const uuid = z.string().uuid();
 const metaSchema = z.object({
   id: uuid,
@@ -98,6 +104,35 @@ export function createApp(
       },
     );
     return c.json({ ok: true });
+  });
+  // Only these token-bound, read-only routes bypass the kitchen password.
+  const shareToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+  app.get("/api/shared/:token", async (c) => {
+    const token = shareToken.parse(c.req.param("token"));
+    const r = await db.pool.query(
+      "SELECT meta FROM fw_creations WHERE share_token=$1 AND video IS NOT NULL",
+      [token],
+    );
+    if (!r.rows[0]) throw new ApiError("NOT_FOUND", 404);
+    c.header("X-Robots-Tag", "noindex, nofollow");
+    return c.json({
+      ...metaSchema.parse(r.rows[0].meta),
+      imageUrl: `/api/shared/${token}/cover`,
+      hasVideo: true,
+    });
+  });
+  app.get("/api/shared/:token/:media", async (c) => {
+    const token = shareToken.parse(c.req.param("token"));
+    const media = z
+      .enum(["image", "video", "cover"])
+      .parse(c.req.param("media"));
+    const r = await db.pool.query(
+      `SELECT ${media === "cover" ? "COALESCE(cover,image)" : media} AS data,${media === "cover" ? "COALESCE(cover_type,image_type)" : `${media}_type`} AS type FROM fw_creations WHERE share_token=$1 AND video IS NOT NULL`,
+      [token],
+    );
+    const row = r.rows[0];
+    if (!row?.data) throw new ApiError("NOT_FOUND", 404);
+    return mediaResponse(row.data, String(row.type), c.req.header("range"));
   });
   app.use("/api/*", async (c, next) => {
     const cookie = await getSignedCookie(c, config.secret, "fw_session");
@@ -230,7 +265,7 @@ export function createApp(
     return c.json(
       r.rows.map((r) => ({
         ...metaSchema.parse(r.meta),
-        imageUrl: `/api/creations/${r.id}/image`,
+        imageUrl: `/api/creations/${r.id}/cover`,
         hasVideo: r.has_video === true,
       })),
     );
@@ -241,6 +276,14 @@ export function createApp(
     const meta = metaSchema.parse(JSON.parse(body.meta));
     const image = body.image;
     const video = body.video;
+    const cover = body.cover;
+    if (
+      cover &&
+      (!(cover instanceof File) ||
+        !["image/png", "image/jpeg", "image/webp"].includes(cover.type) ||
+        cover.size > 20 * 1024 * 1024)
+    )
+      throw new ApiError("INVALID_IMAGE", 400);
     if (
       !(image instanceof File) ||
       !["image/png", "image/jpeg", "image/webp"].includes(image.type) ||
@@ -257,7 +300,7 @@ export function createApp(
     )
       throw new ApiError("INVALID_VIDEO", 400);
     await db.pool.query(
-      "INSERT INTO fw_creations(id,meta,image,image_type,video,video_type) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING",
+      "INSERT INTO fw_creations(id,meta,image,image_type,video,video_type,cover,cover_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO NOTHING",
       [
         meta.id,
         JSON.stringify(meta),
@@ -265,47 +308,33 @@ export function createApp(
         image.type,
         video instanceof File ? Buffer.from(await video.arrayBuffer()) : null,
         video instanceof File ? video.type : null,
+        cover instanceof File ? Buffer.from(await cover.arrayBuffer()) : null,
+        cover instanceof File ? cover.type : null,
       ],
     );
     return c.json({ ok: true, id: meta.id });
   });
+  app.post("/api/creations/:id/share", async (c) => {
+    const id = uuid.parse(c.req.param("id"));
+    const r = await db.pool.query(
+      "UPDATE fw_creations SET share_token=COALESCE(share_token,$2) WHERE id=$1 AND video IS NOT NULL RETURNING share_token",
+      [id, randomBytes(32).toString("base64url")],
+    );
+    if (!r.rows[0]) throw new ApiError("NOT_FOUND", 404);
+    return c.json({ url: `/?share=${r.rows[0].share_token}` });
+  });
   app.get("/api/creations/:id/:media", async (c) => {
     const id = uuid.parse(c.req.param("id"));
-    const media = z.enum(["image", "video"]).parse(c.req.param("media"));
+    const media = z
+      .enum(["image", "video", "cover"])
+      .parse(c.req.param("media"));
     const r = await db.pool.query(
-      `SELECT ${media} AS data,${media}_type AS type FROM fw_creations WHERE id=$1`,
+      `SELECT ${media === "cover" ? "COALESCE(cover,image)" : media} AS data,${media === "cover" ? "COALESCE(cover_type,image_type)" : `${media}_type`} AS type FROM fw_creations WHERE id=$1`,
       [id],
     );
     const row = r.rows[0];
     if (!row?.data) throw new ApiError("NOT_FOUND", 404);
-    const data: Buffer = row.data;
-    const headers = {
-      "Content-Type": String(row.type),
-      "Cache-Control": "private, max-age=3600",
-      "Accept-Ranges": "bytes",
-    };
-    const range = c.req.header("range");
-    if (range) {
-      const match = /^bytes=(\d+)-(\d*)$/.exec(range);
-      if (!match) return c.body(null, 416);
-      const start = Number(match[1]);
-      const end = Math.min(
-        match[2] ? Number(match[2]) : data.length - 1,
-        data.length - 1,
-      );
-      if (start > end || start >= data.length) return c.body(null, 416);
-      return new Response(new Uint8Array(data.subarray(start, end + 1)), {
-        status: 206,
-        headers: {
-          ...headers,
-          "Content-Range": `bytes ${start}-${end}/${data.length}`,
-          "Content-Length": String(end - start + 1),
-        },
-      });
-    }
-    return new Response(new Uint8Array(data), {
-      headers: { ...headers, "Content-Length": String(data.length) },
-    });
+    return mediaResponse(row.data, String(row.type), c.req.header("range"));
   });
   app.onError((e, c) => {
     if (e instanceof ApiError)

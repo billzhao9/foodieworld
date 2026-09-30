@@ -145,17 +145,15 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
     await Promise.all([one, two]);
   });
   it("serializes additions and only applies one acknowledged action", async () => {
-    const up = vi
-      .fn()
-      .mockResolvedValue({
-        text: JSON.stringify({
-          title: "芝士饭",
-          titleEn: "Cheese rice",
-          description: "芝士加入啦",
-          descriptionEn: "Cheese added",
-          prompt: "Melted cheese pours onto the rice.",
-        }),
-      });
+    const up = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        title: "芝士饭",
+        titleEn: "Cheese rice",
+        description: "芝士加入啦",
+        descriptionEn: "Cheese added",
+        prompt: "Melted cheese pours onto the rice.",
+      }),
+    });
     const c = new Crafts(db, up),
       id = randomUUID(),
       action = randomUUID();
@@ -220,6 +218,11 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
       "image.png",
     );
     form.append(
+      "cover",
+      new Blob(["final-frame"], { type: "image/jpeg" }),
+      "cover.jpg",
+    );
+    form.append(
       "video",
       new Blob(["video-bytes"], { type: "video/webm" }),
       "video.webm",
@@ -237,10 +240,68 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
       await second.request("/api/creations", { headers: { cookie } })
     ).json();
     expect(list[0].hasVideo).toBe(true);
+    const thumbnail = await second.request(list[0].imageUrl, {
+      headers: { cookie },
+    });
+    expect(await thumbnail.text()).toBe("final-frame");
+    const original = await second.request(`/api/creations/${id}/image`, {
+      headers: { cookie },
+    });
+    expect(await original.text()).toBe("image-bytes");
     const r = await second.request(`/api/creations/${id}/video`, {
       headers: { cookie, range: "bytes=0-4" },
     });
     expect(r.status).toBe(206);
     expect(await r.text()).toBe("video");
+    expect(
+      (await second.request(`/api/creations/${id}/share`, { method: "POST" }))
+        .status,
+    ).toBe(401);
+    const shared = await (
+      await first.request(`/api/creations/${id}/share`, {
+        method: "POST",
+        headers: { cookie },
+      })
+    ).json();
+    const token = new URL(shared.url, "http://localhost").searchParams.get(
+      "share",
+    )!;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const repeat = await (
+      await second.request(`/api/creations/${id}/share`, {
+        method: "POST",
+        headers: { cookie },
+      })
+    ).json();
+    expect(repeat.url).toBe(shared.url);
+    const publicMeta = await second.request(`/api/shared/${token}`);
+    expect(publicMeta.status).toBe(200);
+    expect((await publicMeta.json()).baseIngredients).toEqual(["米饭"]);
+    const clip = await second.request(`/api/shared/${token}/video`, {
+      headers: { range: "bytes=-5" },
+    });
+    expect(clip.status).toBe(206);
+    expect(await clip.text()).toBe("bytes");
+    expect((await second.request(`/api/shared/${"a".repeat(43)}`)).status).toBe(
+      404,
+    );
+    expect((await second.request(`/api/shared/${token}/secret`)).status).toBe(
+      400,
+    );
+    expect((await second.request("/api/creations")).status).toBe(401);
+    expect(
+      (await second.request(`/api/crafts/${id}/live`, { method: "POST" }))
+        .status,
+    ).toBe(401);
+    await db.pool.query("UPDATE fw_creations SET video=NULL WHERE id=$1", [id]);
+    expect(
+      (
+        await second.request(`/api/creations/${id}/share`, {
+          method: "POST",
+          headers: { cookie },
+        })
+      ).status,
+    ).toBe(404);
+    expect((await second.request(`/api/shared/${token}`)).status).toBe(404);
   });
 });

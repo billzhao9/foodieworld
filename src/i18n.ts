@@ -11,6 +11,52 @@ const copy: Record<string, [string, string]> = {
   categoryFruit: ["水果", "Fruit"],
   categorySeasoning: ["调味甜食", "Sweet & savory"],
   categoryLabel: ["食材分类", "Ingredient categories"],
+  openCreation: ["查看作品", "View creation"],
+  gallery: ["魔法画廊", "Gallery"],
+  allSaved: ["全部收藏", "Saved"],
+  emptyGallery: [
+    "第一道奇妙料理，还在酝酿中",
+    "Your first curious creation is still brewing",
+  ],
+  emptyGalleryBody: [
+    "完成烹饪并收藏视频，让朋友看看你的脑洞。",
+    "Cook, record and save your creation. Then share a little surprise with friends.",
+  ],
+  recordedCreation: ["料理实录", "Kitchen recording"],
+  shareFriends: ["分享给朋友", "Share with friends"],
+  sharePreparing: ["准备分享链接…", "Preparing link…"],
+  shareCopied: ["链接已复制", "Link copied"],
+  shareLink: ["作品链接，可复制发送", "Copy this creation’s link"],
+  shareFailed: [
+    "分享链接没准备好，请再试一次。",
+    "The sharing link could not be created. Please try again.",
+  ],
+  sharedLoading: [
+    "正在打开这份奇妙料理…",
+    "Opening a little culinary surprise…",
+  ],
+  sharedFromFriend: [
+    "朋友分享的一锅魔法",
+    "A little magic, shared by a friend",
+  ],
+  shareNotFound: ["这份分享暂时找不到了", "This creation is unavailable"],
+  sharedLoadFailed: [
+    "这锅魔法还没送到，请稍后重试",
+    "This creation could not be loaded. Please try again later.",
+  ],
+  shareUnavailableHint: [
+    "可以请朋友重新发送作品链接。",
+    "Ask your friend for a fresh sharing link.",
+  ],
+  visitKitchen: ["去小魔女厨房看看", "Visit the little witch’s kitchen"],
+  sharedMadeWith: [
+    "诞生于小魔女厨房，每一锅都有自己的个性。",
+    "Conjured in the Little Witch Kitchen. Every pot has a personality.",
+  ],
+  sharedSecretRecipe: [
+    "这份料理保留了一点神秘感。",
+    "This recipe keeps a little mystery.",
+  ],
   basketHint: [
     "挑选 1–6 种食材，交给魔法来组合",
     "Choose 1–6 ingredients. Let magic do the mixing.",
@@ -49,7 +95,10 @@ const copy: Record<string, [string, string]> = {
   count: ["道美味，等你唤醒", "delicious possibilities"],
   cook: ["去施魔法", "Make magic"],
   noResults: ["没有找到这种食材", "No ingredients found"],
-  trySearch: ["换个名字，再试一次吧。", "Try another name or ingredient category."],
+  trySearch: [
+    "换个名字，再试一次吧。",
+    "Try another name or ingredient category.",
+  ],
   emptySaved: ["作品集还在等第一颗星星", "Your first little star is waiting"],
   emptySavedBody: [
     "在炼金台创造一道美味，把喜欢的瞬间收藏起来。",

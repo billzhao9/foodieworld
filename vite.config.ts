@@ -14,7 +14,14 @@ export default defineConfig({
       },
     },
   ],
-  optimizeDeps: { exclude: ["@reactor-team/js-sdk"] },
+  optimizeDeps: {
+    exclude: ["@reactor-team/js-sdk"],
+    include: [
+      "@reactor-team/js-sdk > awaitqueue",
+      "@reactor-team/js-sdk > react",
+      "@reactor-team/js-sdk > react/jsx-runtime",
+    ],
+  },
   server: {
     port: 5174,
     strictPort: true,

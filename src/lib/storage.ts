@@ -33,12 +33,14 @@ export async function saveCreation(
   meta: Omit<SavedCreation, "imageUrl" | "hasVideo">,
   image: Blob,
   video: Blob | null,
+  cover?: Blob | null,
 ): Promise<void> {
   if (!image.size) throw new Error("STORAGE_EMPTY_IMAGE");
   const form = new FormData();
   form.append("meta", JSON.stringify(meta));
   form.append("image", image, "image");
   if (video?.size) form.append("video", video, "video");
+  if (cover?.size) form.append("cover", cover, "cover.jpg");
   await request("/api/creations", { method: "POST", body: form }, 120_000);
 }
 

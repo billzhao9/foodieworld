@@ -1,0 +1,41 @@
+export function mediaResponse(data: Buffer, type: string, range?: string) {
+  const headers = {
+    "Content-Type": type,
+    "Cache-Control": "private, no-store",
+    "Accept-Ranges": "bytes",
+    "X-Content-Type-Options": "nosniff",
+  };
+  const invalid = () =>
+    new Response(null, {
+      status: 416,
+      headers: { ...headers, "Content-Range": `bytes */${data.length}` },
+    });
+  if (!range)
+    return new Response(new Uint8Array(data), {
+      headers: { ...headers, "Content-Length": String(data.length) },
+    });
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (!match || (!match[1] && !match[2])) return invalid();
+  const start = match[1]
+    ? Number(match[1])
+    : Math.max(0, data.length - Number(match[2]));
+  const end =
+    match[1] && match[2]
+      ? Math.min(Number(match[2]), data.length - 1)
+      : data.length - 1;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start > end ||
+    start >= data.length
+  )
+    return invalid();
+  return new Response(new Uint8Array(data.subarray(start, end + 1)), {
+    status: 206,
+    headers: {
+      ...headers,
+      "Content-Range": `bytes ${start}-${end}/${data.length}`,
+      "Content-Length": String(end - start + 1),
+    },
+  });
+}

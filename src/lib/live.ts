@@ -3,6 +3,7 @@ import type { LiveConnection } from "../../shared/contracts";
 
 export interface LivePlayer {
   update(prompt: string): Promise<void>;
+  resumeAudio(): Promise<void>;
   close(): Promise<Blob | null>;
 }
 
@@ -53,8 +54,10 @@ export async function connectLive(args: {
     apiUrl: args.connection.apiBase,
     readyTimeoutMs: 20_000,
     controlRequestTimeoutMs: 10_000,
-    maxSessionAttempts: 1,
-    maxSdpAttempts: 1,
+    maxSessionAttempts: 20,
+    // SDP negotiation polls the same session; one poll expires before the
+    // remote answer can arrive. This does not create additional paid sessions.
+    maxSdpAttempts: 20,
     logLevel: "off",
   });
   const output = new MediaStream();
@@ -83,19 +86,39 @@ export async function connectLive(args: {
   }
 
   let mediaTimer: ReturnType<typeof setTimeout> | undefined;
+  let started = false;
+  let firstFrame: number | undefined;
+  let phase = "connect";
+  function diagnostic(error: unknown) {
+    if (!import.meta.env.DEV) return;
+    const detail =
+      error instanceof Error ? error.message : "Unknown live error";
+    console.warn(
+      "FoodieWorld live",
+      phase,
+      detail
+        .replace(/eyJ[\w.-]+/g, "[credential]")
+        .replace(/Bearer\s+\S+/gi, "Bearer [credential]")
+        .replace(/https?:\/\/\S+/g, "[endpoint]"),
+    );
+  }
   const onPlaying = () => {
-    if (!closed) {
+    if (!closed && started && args.video.videoWidth > 0) {
       clearTimeout(mediaTimer);
       args.onPlaying();
     }
   };
   args.video.addEventListener("playing", onPlaying);
+  args.video.addEventListener("loadeddata", onPlaying);
 
   async function close(): Promise<Blob | null> {
     if (closePromise) return closePromise;
     closed = true;
     clearTimeout(mediaTimer);
     args.video.removeEventListener("playing", onPlaying);
+    args.video.removeEventListener("loadeddata", onPlaying);
+    if (firstFrame !== undefined)
+      args.video.cancelVideoFrameCallback(firstFrame);
     closePromise = (async () => {
       try {
         if (recorder && recorder.state !== "inactive") {
@@ -148,6 +171,7 @@ export async function connectLive(args: {
 
   function fail(value: unknown) {
     if (closed) return;
+    diagnostic(value);
     const error = value instanceof Error ? value : new Error("LIVE_FAILED");
     void close().catch(() => {});
     if (!reported) {
@@ -184,16 +208,19 @@ export async function connectLive(args: {
         source.connect(audioDestination);
         audioSources.push(source);
       }
-      args.video.srcObject = output;
-      void bounded(args.video.play(), 5000, "LIVE_PLAYBACK_TIMEOUT").catch(
-        (error) => {
-          // Mobile autoplay can require the visible native play button.
-          if (
-            !(error instanceof DOMException && error.name === "NotAllowedError")
+      if (args.video.srcObject !== output) args.video.srcObject = output;
+      // A track can arrive before upload/start, with no frames available yet.
+      // The post-start media timer owns the first-frame deadline.
+      void args.video.play().catch((error) => {
+        // Mobile autoplay can require the visible native play button.
+        if (
+          !(
+            error instanceof DOMException &&
+            ["NotAllowedError", "AbortError"].includes(error.name)
           )
-            fail(error);
-        },
-      );
+        )
+          fail(error);
+      });
       if (name === "main_video" && !recorder && recordingSupported()) {
         const stream = new MediaStream([
           track,
@@ -236,20 +263,28 @@ export async function connectLive(args: {
     await bounded(
       client.connect(args.connection.jwt, {
         sessionId: args.connection.sessionId,
-        maxAttempts: 1,
+        maxAttempts: 20,
       }),
       25_000,
       "LIVE_CONNECT_TIMEOUT",
     );
     if (closed) throw new Error("LIVE_CLOSED");
+    phase = "upload";
     const image = await bounded(
       client.uploadFile(args.image),
       12_000,
       "LIVE_UPLOAD_TIMEOUT",
     );
+    phase = "set_image";
     await command("set_image", { image });
+    phase = "set_prompt";
     await command("set_prompt", { prompt: args.prompt, passthrough: true });
+    phase = "start";
     await command("start");
+    phase = "playback";
+    started = true;
+    firstFrame = args.video.requestVideoFrameCallback?.(() => onPlaying());
+    onPlaying();
     if (
       args.video.paused ||
       args.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
@@ -259,10 +294,14 @@ export async function connectLive(args: {
         25_000,
       );
   } catch (error) {
+    diagnostic(error);
     await close().catch(() => {});
     throw error;
   }
   return {
+    async resumeAudio() {
+      if (audioContext?.state === "suspended") await audioContext.resume();
+    },
     async update(prompt) {
       try {
         await command("set_prompt", { prompt, passthrough: true });

@@ -15,6 +15,15 @@ import {
   type LivePlayer,
 } from "./lib/live";
 import { saveCreation, listCreations, getVideo, getImage } from "./lib/storage";
+import { z } from "zod";
+const activeCraftKey = "foodieworld.activeCraftId";
+const restoredCraftSchema = z.object({
+  baseIngredients: z.array(z.string()).min(1).max(6),
+  opening: openingSchema.optional(),
+  imageJob: z.string().optional(),
+  imageUrl: z.string().optional(),
+  additions: z.array(z.string()),
+});
 const copy = {
   idle: [
     "选好食材，唤醒这份小小魔法。",
@@ -108,6 +117,26 @@ const copy = {
     "变化命令的结果不确定，本轮已停止以避免重复加料。",
     "The change could not be confirmed. This spell stopped to avoid applying it twice.",
   ],
+  restored: [
+    "已找回料理和开场图。点击开始会开启新一轮视频，不会重新生成开场图。",
+    "Your dish and opening image are restored. Start opens a new video session using the existing image.",
+  ],
+  restoredPending: [
+    "已找回未完成的料理。点击开始将继续原任务；不会自动开启视频。",
+    "Your unfinished dish is restored. Start continues the same task; no video session starts automatically.",
+  ],
+  restoredFinished: [
+    "已找回料理与加料记录，旧视频不会继续。点击开始将用初始食材制作新一轮。",
+    "Your dish and additions are restored, but the previous video cannot resume. Start makes a new dish from the original ingredients.",
+  ],
+  RESTORE_FAILED: [
+    "暂时无法读取上次料理。已保留恢复记录，请刷新后重试。",
+    "Your previous dish could not be loaded. Its recovery record is kept; reload to retry.",
+  ],
+  RESUME_STORAGE_UNAVAILABLE: [
+    "浏览器无法保存恢复记录，请允许此页面使用会话存储后重试。",
+    "The browser cannot save recovery information. Allow session storage and try again.",
+  ],
 } as const;
 function msg(key: string) {
   const val = copy[key as keyof typeof copy] || copy.generic;
@@ -193,17 +222,81 @@ export function useKitchen() {
     session: SessionReply | null = null,
     player: LivePlayer | null = null,
     image: Blob | null = null,
+    cover: Blob | null = null,
     recording: Blob | null = null,
     generation = 0,
     timer: ReturnType<typeof setInterval> | undefined,
     heartbeat: ReturnType<typeof setInterval> | undefined,
     stopTask: Promise<void> | null = null,
     saveId = randomId();
-  function randomId() {
+  function randomId(): string {
     return crypto.randomUUID();
   }
   function failure(e: unknown) {
     errorCode.value = e instanceof RequestError ? e.code : "generic";
+  }
+  function rememberCraft() {
+    try {
+      sessionStorage.setItem(activeCraftKey, craftId);
+    } catch {
+      throw new RequestError("RESUME_STORAGE_UNAVAILABLE");
+    }
+  }
+  async function restoreCraft() {
+    // A recovery link also restores older paid work from before this browser
+    // started keeping a session checkpoint. Never create a generation here.
+    let id: string | null;
+    try {
+      id =
+        new URL(window.location.href).searchParams.get("craft") ||
+        sessionStorage.getItem(activeCraftKey);
+    } catch {
+      return;
+    }
+    if (!id || !z.string().uuid().safeParse(id).success) return;
+    const run = generation;
+    try {
+      const state = restoredCraftSchema.parse(await api(`/crafts/${id}`));
+      if (run !== generation) return;
+      selectIngredients(state.baseIngredients);
+      craftId = id;
+      rememberCraft();
+      opening.value = state.opening ?? null;
+      additions.value = [...state.additions];
+      const hasAdditions = state.additions.length > 0;
+      stage.value = hasAdditions ? "stopped" : "idle";
+      statusCode.value = hasAdditions ? "restoredFinished" : "restoredPending";
+      const restoredRun = generation;
+      if (state.imageUrl) {
+        const response = await fetch(`/api/crafts/${id}/image`, {
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!response.ok) throw new RequestError("IMAGE_FAILED");
+        const restoredImage = await response.blob();
+        if (restoredRun !== generation) return;
+        image = restoredImage;
+        openingUrl.value = URL.createObjectURL(image);
+        statusCode.value = hasAdditions ? "restoredFinished" : "restored";
+      }
+      // Reuse an unfinished opening; a dish with applied additions needs a
+      // new round because the opening image cannot recreate its last frame.
+      stage.value = hasAdditions ? "stopped" : "idle";
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("craft")) {
+        url.searchParams.delete("craft");
+        window.history.replaceState(window.history.state, "", url);
+      }
+    } catch (e) {
+      if (e instanceof RequestError && e.code === "NOT_FOUND") {
+        try {
+          sessionStorage.removeItem(activeCraftKey);
+        } catch {
+          /* Storage can be blocked. */
+        }
+      } else {
+        errorCode.value = "RESTORE_FAILED";
+      }
+    }
   }
   async function refresh() {
     try {
@@ -219,6 +312,7 @@ export function useKitchen() {
       await api("/auth/login", { password });
       authenticated.value = true;
       await refresh();
+      await restoreCraft();
     } catch (e) {
       passwordError.value = msg(e instanceof RequestError ? e.code : "generic");
     } finally {
@@ -241,6 +335,7 @@ export function useKitchen() {
     opening.value = null;
     additions.value = [];
     image = null;
+    cover = null;
     recording = null;
     saved.value = false;
     errorCode.value = "";
@@ -293,6 +388,9 @@ export function useKitchen() {
     recording = null;
     saved.value = false;
     try {
+      // Persist before the first potentially paid call, including a request
+      // whose response might be lost during a navigation or reload.
+      rememberCraft();
       stage.value = "planning";
       await api("/crafts", { id: runCraftId, ingredients: runIngredients });
       if (run !== generation) return;
@@ -370,6 +468,61 @@ export function useKitchen() {
       stage.value = "error";
     }
   }
+  function captureCover(): Promise<Blob | null> {
+    const video = videoElement.value;
+    if (
+      !video ||
+      video.videoWidth <= 0 ||
+      video.videoHeight <= 0 ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      !(video.srcObject instanceof MediaStream)
+    )
+      return Promise.resolve(null);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280;
+      canvas.height = 720;
+      const context = canvas.getContext("2d");
+      if (!context) return Promise.resolve(null);
+      // Contain the complete received frame, without cropping or stretching.
+      // Small aspect-ratio differences use neutral letterboxing.
+      context.fillStyle = "#000000";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      const scale = Math.min(
+        canvas.width / video.videoWidth,
+        canvas.height / video.videoHeight,
+      );
+      const width = video.videoWidth * scale;
+      const height = video.videoHeight * scale;
+      context.drawImage(
+        video,
+        (canvas.width - width) / 2,
+        (canvas.height - height) / 2,
+        width,
+        height,
+      );
+      // drawImage freezes the live frame synchronously, before disconnect can
+      // clear srcObject. An unavailable encoder must never block stop/save.
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve(null), 1500);
+        try {
+          canvas.toBlob(
+            (blob) => {
+              clearTimeout(timeout);
+              resolve(blob?.size && blob.type === "image/jpeg" ? blob : null);
+            },
+            "image/jpeg",
+            0.88,
+          );
+        } catch {
+          clearTimeout(timeout);
+          resolve(null);
+        }
+      });
+    } catch {
+      return Promise.resolve(null);
+    }
+  }
   async function stop() {
     if (stopTask) return stopTask;
     const captured = session;
@@ -379,8 +532,10 @@ export function useKitchen() {
     clearInterval(heartbeat);
     const instance = player;
     player = null;
+    const capturedCover = instance ? captureCover() : Promise.resolve(null);
     stopTask = (async () => {
       try {
+        cover = (await capturedCover) ?? cover;
         if (instance) {
           recording = await instance.close();
           if (recording) {
@@ -445,13 +600,14 @@ export function useKitchen() {
   }
   function toggleSound() {
     muted.value = !muted.value;
+    if (!muted.value) void player?.resumeAudio().catch(() => undefined);
     if (videoElement.value) {
       videoElement.value.muted = muted.value;
       void videoElement.value.play().catch(() => undefined);
     }
   }
   async function save() {
-    if (!image || !opening.value) return;
+    if (!image || !opening.value || saved.value) return;
     if (stage.value === "live" || stage.value === "connecting") await stop();
     statusCode.value = "saving";
     try {
@@ -469,6 +625,7 @@ export function useKitchen() {
         },
         image,
         recording,
+        cover,
       );
       saved.value = true;
       statusCode.value = "saved";
@@ -483,6 +640,7 @@ export function useKitchen() {
     selectIngredients(
       item.baseIngredients?.length ? item.baseIngredients : ["魔法料理"],
     );
+    saveId = item.id;
     try {
       image = await getImage(item.id);
       if (!image) throw new Error("Missing image");
@@ -524,11 +682,13 @@ export function useKitchen() {
     if (document.hidden) leave();
   };
   onMounted(async () => {
+    if (new URL(window.location.href).searchParams.has("share")) return;
     recordingSupported.value = canRecord();
     try {
       await api("/auth");
       authenticated.value = true;
       await refresh();
+      await restoreCraft();
     } catch {
       authenticated.value = false;
     } finally {

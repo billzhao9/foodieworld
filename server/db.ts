@@ -17,6 +17,10 @@ export class Database {
  ALTER TABLE fw_live ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'development';
  ALTER TABLE fw_live ADD COLUMN IF NOT EXISTS stop_requested boolean NOT NULL DEFAULT false;
  CREATE TABLE IF NOT EXISTS fw_creations (id text PRIMARY KEY,meta jsonb NOT NULL,image bytea NOT NULL,image_type text NOT NULL,video bytea,video_type text,created_at timestamptz NOT NULL DEFAULT now());
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS cover bytea;
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS cover_type text;
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS share_token text;
+ CREATE UNIQUE INDEX IF NOT EXISTS fw_creations_share ON fw_creations(share_token) WHERE share_token IS NOT NULL;
  CREATE TABLE IF NOT EXISTS fw_logins (bucket text PRIMARY KEY,attempts integer NOT NULL,expires_at bigint NOT NULL);
  `);
   }
