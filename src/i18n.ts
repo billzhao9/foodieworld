@@ -48,10 +48,10 @@ const copy: Record<string, [string, string]> = {
     "可以请朋友重新发送作品链接。",
     "Ask your friend for a fresh sharing link.",
   ],
-  visitKitchen: ["去小魔女厨房看看", "Visit the little witch’s kitchen"],
+  visitKitchen: ["去食界狂想看看", "Explore Foodie World"],
   sharedMadeWith: [
-    "诞生于小魔女厨房，每一锅都有自己的个性。",
-    "Conjured in the Little Witch Kitchen. Every pot has a personality.",
+    "诞生于食界狂想，每一锅都有自己的个性。",
+    "Created in Foodie World. Every pot has a personality.",
   ],
   sharedSecretRecipe: [
     "这份料理保留了一点神秘感。",
@@ -68,7 +68,8 @@ const copy: Record<string, [string, string]> = {
     "Pick something above to fill your basket.",
   ],
   basketStart: ["带着食材，开始施法", "Let’s make some magic"],
-  brand: ["小魔女厨房", "Little Witch Kitchen"],
+  brand: ["食界狂想", "Foodie World"],
+  brandSubtitle: ["FOODIE WORLD", "COOK · MIX · SURPRISE"],
   tagline: ["一点好奇，一锅魔法。", "A little curiosity. A pot of magic."],
   gateTitle: ["嘘，秘密厨房营业啦", "Psst… the secret kitchen is open"],
   gateBody: [
@@ -88,7 +89,7 @@ const copy: Record<string, [string, string]> = {
   favorites: ["作品集", "Collection"],
   headline: ["今天，把什么变成美味？", "What shall we conjure today?"],
   intro: [
-    "挑几样新鲜食材，小魔女为你创造独一无二的美味。",
+    "挑几样新鲜食材，创造独一无二的美味狂想。",
     "Pick a few fresh ingredients. Your witch will dream up something delicious.",
   ],
   search: ["找找厨房里有什么…", "Explore the pantry…"],
@@ -173,7 +174,8 @@ watch(
   (value) => {
     localStorage.setItem("foodie-locale", value);
     document.documentElement.lang = value === "zh" ? "zh-CN" : "en";
-    document.title = `${t("brand")} · Foodie World`;
+    document.title =
+      value === "zh" ? "食界狂想 · Foodie World" : "Foodie World";
   },
   { immediate: true },
 );

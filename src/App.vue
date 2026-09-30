@@ -158,7 +158,9 @@ async function addCustom() {
       >
         <span class="brand-symbol"
           ><Moon :size="23" /><Sparkles :size="13" /></span
-        ><span>{{ t("brand") }}<small>FOODIE WORLD</small></span>
+        ><span
+          >{{ t("brand") }}<small>{{ t("brandSubtitle") }}</small></span
+        >
       </button>
       <div class="header-actions">
         <button
