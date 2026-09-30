@@ -1,22 +1,48 @@
-# 食界狂想 · Foodie World
+# Foodie World · 食界狂想
 
-手机友好的中英文魔法料理实验室：选择真实食材，生成原创料理的开场图和实时视频，再连续加入真实或幻想材料。支持共享密码、326 种真实食材、8 种幻想材料、144 个动物及动物表情变体、实际视频录制与下载。视频以可见的烹饪融合、连续加料和可爱料理反应为目标。
+**A little curiosity. A pot of magic.**
 
-支持 24 个中西及融合选材组合（披萨、炸鸡、寿司、麻婆意面、泡菜披萨等），一键替换后可撤销并自由改料；23 种可选厨具包括微波炉、烤箱、空气炸锅、蒸笼及寿司竹帘。厨具随料理及收藏保存，旧作品默认自动选择。每轮按料理 ID 稳定搭配背景、灯光和配色，同一轮加料保持场景连续；新一轮重新搭配，不保证每次组合绝不重复。生成效果仍需实际观看验收。
+Foodie World turns “what if?” into a cooking show you can play. Mix ingredients from East and West, choose your cookware, and watch an AI-generated dish come to life in real-time video. Then change the story: add a little stardust, invite a mischievous animal judge, or push a beautiful meal into glorious culinary chaos. With bilingual comic commentary and a gallery of recorded creations, every experiment becomes a tiny performance worth sharing. Foodie World makes generative video hands-on: your next ingredient becomes the next scene.
 
-食材篮支持一次选择 1–40 种食材，一键跨分类随机混搭 20 种（替换后可撤销），已选列表可折叠、逐个移除或清空；初始选择和后续加料均支持中英文搜索。食材目录参考 [CookLikeHOC](https://github.com/Gar-b-age/CookLikeHOC) 的公开成分名称补充，并扩展酱料、香料、食用油和国际食材；没有复制其菜谱正文。多食材画面将主料与酱汁、调味分层组织，实际视频不保证每一种调料都能单独辨认。
+## Explore the kitchen
 
-“动物乱入”支持分类、中英文搜索与随机角色。动物会在同一段实时视频中登场，随机嫌弃、抢吃、恶搞、模仿厨神或留下卡通便便；后续加料保留已有角色。每次动作的随机行为会保存，失败重试不会重新抽取。动物作为角色独立保存，不计入食材。
+A mobile-friendly, English–Chinese cooking playground with shared-password access, animated food experiments, and real video recording.
 
-动物叫声与料理音效由 Visko 的独立音效提示生成；主持人台词通过本机 macOS Tingting（普通话）与 Samantha（英语）合成为真正的 WAV 配音，再混入直播和录制。切换语言会停止旧旁白并播放对应语言，背景声在旁白期间自动压低。默认开启声音，浏览器限制时需点声音按钮解锁；静音只影响本机监听，录制仍保留声音。旁白音频缓存于 PostgreSQL，旧付费记录使用固定短台词兼容，不重新生成开场图。当前配音仅支持 macOS 本地服务，部署 Linux 前需接入云端 TTS；不会把 Visko 模仿的人声当作可靠中文。
+- **326 real ingredients and 8 fantasy materials.** Explore staples, meat and seafood, vegetables, fruit, dairy, sauces, oils, and spices. Combine 1–40 ingredients, or try 20 random picks at once. Undo replacements, expand your basket, remove individual items, or clear it. Both initial selection and later additions support bilingual search.
+- **24 editable starting combinations.** Begin with pizza, crispy fried chicken, sushi, or a cross-cultural experiment such as mapo pasta or kimchi pizza. Every combination is a starting point you can change.
+- **23 cookware choices.** Try a microwave, oven, air fryer, steamer, sushi mat, and more. Cookware shares the ingredient filter and card area to keep the mobile page compact. Your choice is saved with the dish and its collection entry; older creations default to automatic selection.
+- **A different setting for each new experiment.** Backgrounds, lighting, and palettes are selected consistently for a given cooking session. Retries retain the same direction, while a new session gets a fresh combination. Combinations may repeat, and generated results can still drift during longer videos.
+- **144 animal characters and expression variants.** Browse, search, or invite a random guest. Animals can judge the food, sneak a bite, cause trouble, imitate a chef, or leave a cartoon poop gag. They are saved as characters, never counted as ingredients. Each action's randomized behavior is persisted so a retry does not reroll it.
 
-作品画廊展示已录制的视频及出场动物。登录访客可为作品创建随机分享链接；持有该链接的朋友只能观看这一件作品，无需厨房密码，不能生成或查看完整画廊。作品默认不公开，只有点击分享才生成链接。本地链接只能在本机访问，公开访问需部署后使用站点域名分享。
+The experience generates dish names, playful descriptions, and cooking videos—not step-by-step recipes. Ingredients are organized into recognizable main components, sauces, and seasonings; a generated video may not make every individual ingredient visually identifiable. Ingredient names draw on public food information, with an expanded international pantry; recipe prose is not copied.
 
-生成时显示三阶段进度、已等待时长和预计剩余时间范围；估计使用本浏览器最近成功生成的阶段耗时，并排除明显缓存命中。进度为估算，不是上游真实百分比；超时会显示等待提示，只有实际视频开始播放才算完成。
+## Cooking you can influence
 
-## 本地运行
+Start with an opening image, then watch the scene develop through a live video session. Add real or imaginary ingredients to request the next transformation in the same session. Prompts aim to preserve the existing dish, cookware, characters, and setting while giving each addition a visible physical effect and a comic payoff.
 
-需要 Node.js 22.12+、pnpm 和 PostgreSQL。
+A three-stage progress display shows elapsed time and an estimated remaining range. Estimates use recent successful generation times in the current browser and exclude obvious cache hits. This is an estimate, not an upstream completion percentage. Longer waits receive a clear status message; generation is only marked complete when video actually starts playing.
+
+Each visitor can run one live session at a time, with a maximum of two across the app. Sessions last up to 60 seconds. Leaving, losing connectivity, or putting the page in the background stops generation, with server-side timeout cleanup as a fallback.
+
+## Sound and bilingual commentary
+
+Visko receives a separate sound-effects prompt for animal calls and cooking sounds. Host commentary is synthesized as actual WAV speech using the local macOS **Tingting** voice for Mandarin and **Samantha** for English, then mixed into both live playback and the recording.
+
+Switching languages stops the previous narration and plays the corresponding language. Background audio is lowered during speech. Sound is enabled by default; if the browser blocks playback, tap the sound control to unlock it. Muting affects local listening only—the recording retains its audio.
+
+Narration is cached in PostgreSQL. Previously paid creations use compatible fallback lines where necessary, without regenerating their opening images. **Narration currently requires the local macOS service. A cloud TTS integration is needed before deploying this feature on Linux.** Visko's imitation of human speech is not used as a reliable Mandarin voice.
+
+## Record, collect, and share
+
+The gallery displays recorded videos and their animal guests. When the browser supports `MediaRecorder`, the app saves actual video that can be downloaded. Unsupported browsers receive an explicit notice.
+
+Signed-in visitors can create a random share link for an individual creation. Anyone with that link can view that creation without the kitchen password, but cannot generate content or browse the full gallery. Creations remain private until a share link is requested. Localhost links work only on the same machine; sharing with friends requires a deployed site with a reachable domain.
+
+Collection metadata, opening images, recorded videos, and narration audio are stored in PostgreSQL. Temporary live-stream URLs are never treated as permanent creations.
+
+## Run locally
+
+Requirements: **Node.js 22.12+**, **pnpm**, and **PostgreSQL**.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -24,13 +50,17 @@ cp .env.example .env
 pnpm dev
 ```
 
-在 `.env` 配置 `DATABASE_URL` 和 `MMLONE_API_KEY`。MML ONE 本地开发服务默认地址为 `http://127.0.0.1:3000`。浏览器打开 `http://localhost:5174`，API 使用端口 4174。首次启动生成随机试玩密码，保存在本机 `.data/access.json`；也可设置 `APP_PASSWORD` 和 `APP_SESSION_SECRET`。
+Set `DATABASE_URL` and `MMLONE_API_KEY` in `.env`. The default MML ONE development endpoint is `http://127.0.0.1:3000`.
 
-本地与云端需要填写指向同一 PostgreSQL 数据库的连接串。本地可通过 SSH 隧道连接远程数据库，无需公开数据库端口。应用启动时创建所需表。收藏元数据、开场图、录制视频保存在 PostgreSQL；浏览器临时直播地址不会被当作永久作品。
+- Frontend: `http://localhost:5174`
+- API: port `4174`
+- First launch generates a random access password in `.data/access.json`. You can instead set `APP_PASSWORD` and `APP_SESSION_SECRET`.
 
-MML ONE 需要支持企业文字生成、图片任务和实时会话接口，并为企业服务账户授权所用模型：`gpt-5.4-mini`、`og-image2-5-flare-low` 和 `visko-orbis-stable`。实际模型是否可用以企业目录与调用结果为准。
+Local and cloud instances can share the same PostgreSQL database by using connection strings pointing to that database. The local instance can connect through an SSH tunnel without exposing the database port publicly. Required tables are created when the app starts.
 
-## 验证与构建
+MML ONE must provide enterprise text generation, image jobs, and live-session APIs, with the enterprise service account authorized for `gpt-5.4-mini`, `og-image2-5-flare-low`, and `visko-orbis-stable`. Actual availability must be confirmed through the enterprise model directory and live requests.
+
+## Validate and build
 
 ```sh
 pnpm typecheck
@@ -39,16 +69,18 @@ pnpm build
 pnpm start
 ```
 
-集成测试在独立临时 schema 中运行；未配置测试数据库时跳过这些测试。生产运行需先构建，服务端同时提供网页和 API。HTTPS 环境设置 `SECURE_COOKIES=true`；可信额外来源可通过逗号分隔的 `APP_ORIGINS` 指定。
+Integration tests run in an isolated temporary database schema. They are skipped if a test database is not configured.
 
-每位访客最多一轮实时会话，全站最多两轮，每轮最多 60 秒。退出、断网或页面进入后台会停止，服务端另有超时回收。浏览器支持 MediaRecorder 时保存真实视频，不支持时明确提示。
+Build before starting production mode. The server serves both the frontend and the API. Set `SECURE_COOKIES=true` for HTTPS. Additional trusted origins can be specified as a comma-separated list in `APP_ORIGINS`.
 
-## 仓库内容
+The application uses Vue 3, TypeScript, Vite, a Hono server, PostgreSQL, and the Reactor SDK. Automated checks cover application behavior and data contracts; visual quality, ingredient fidelity, and continuity still require watching the generated output.
 
-仅提交应用源码、测试、依赖锁文件与运行说明。密钥、密码、数据库凭据、SSH 文件、生成媒体、日志、AI 设计文档和本地代理配置不提交。`.env.example` 仅含占位值。
+## Repository hygiene
 
-## 参考
+Commit only application source, tests, dependency lockfiles, and operating instructions. Do not commit API keys, passwords, database credentials, SSH files, generated media, logs, AI design documents, or local agent configuration. `.env.example` contains placeholders only.
 
-食材选择交互参考 [what-to-eat](https://github.com/liu-ziting/what-to-eat)，界面与目录独立实现。实时变化遵循 [Visko Orbis Stable 提示指南](https://docs.reactor.inc/model-api-reference/visko-orbis-stable/prompt-guide)，通过 Reactor SDK 接收视频。
+## References and licenses
 
-动物目录依据 [Unicode Emoji 18.0](https://unicode.org/Public/18.0.0/emoji/emoji-test.txt) 的动物分组，并包含猫脸与猴脸表情，使用系统原生 Emoji；较旧系统可能不支持最新字形，仍显示角色名称。数据许可见 `licenses/UNICODE.txt`。
+Live video is received through the Reactor SDK, with prompts informed by the [Visko Orbis Stable prompting guide](https://docs.reactor.inc/model-api-reference/visko-orbis-stable/prompt-guide).
+
+The animal catalog follows the animal groups in [Unicode Emoji 18.0](https://unicode.org/Public/18.0.0/emoji/emoji-test.txt), including cat-face and monkey-face variants. Characters use native system emoji. Older systems may lack newer glyphs; character names remain visible. See [the Unicode license](licenses/UNICODE.txt).
