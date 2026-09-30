@@ -33,6 +33,7 @@ export interface SavedCreation {
   description: string;
   descriptionEn?: string;
   ingredients: string[];
+  animals?: string[];
   createdAt: number;
   imageUrl: string;
   hasVideo: boolean;

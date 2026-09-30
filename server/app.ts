@@ -24,6 +24,7 @@ const metaSchema = z.object({
   description: z.string().max(500),
   descriptionEn: z.string().max(500).optional(),
   ingredients: z.array(z.string().max(100)).max(12),
+  animals: z.array(z.string().max(100)).max(12).default([]),
   createdAt: z.number(),
 });
 function same(a: string, b: string) {
@@ -235,7 +236,11 @@ export function createApp(
       c.get("owner"),
     );
     const body = z
-      .object({ id: uuid, ingredient: z.string().trim().min(1).max(100) })
+      .object({
+        id: uuid,
+        ingredient: z.string().trim().min(1).max(100),
+        kind: z.enum(["ingredient", "animal"]).default("ingredient"),
+      })
       .parse(await c.req.json());
     return c.json(
       await crafts.action(
@@ -243,6 +248,7 @@ export function createApp(
         c.get("owner"),
         body.id,
         body.ingredient,
+        body.kind,
       ),
     );
   });

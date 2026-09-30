@@ -23,6 +23,7 @@ const restoredCraftSchema = z.object({
   imageJob: z.string().optional(),
   imageUrl: z.string().optional(),
   additions: z.array(z.string()),
+  animals: z.array(z.string()).default([]),
 });
 const copy = {
   idle: [
@@ -93,6 +94,10 @@ const copy = {
   IN_PROGRESS: [
     "这一步正在处理中，请稍等。",
     "This step is already being prepared.",
+  ],
+  INVALID_ANIMAL: [
+    "这位动物嘉宾不在名单里，请重新选择。",
+    "Choose an animal from the guest list.",
   ],
   INGREDIENT_LIMIT: [
     "这一锅已经有很多材料啦，先保存作品吧。",
@@ -186,6 +191,7 @@ export function useKitchen() {
     opening = ref<Opening | null>(null),
     additions = ref<string[]>([]),
     baseIngredients = ref<string[]>([]),
+    animals = ref<string[]>([]),
     adding = ref(false),
     remaining = ref(60),
     muted = ref(true),
@@ -263,7 +269,8 @@ export function useKitchen() {
       rememberCraft();
       opening.value = state.opening ?? null;
       additions.value = [...state.additions];
-      const hasAdditions = state.additions.length > 0;
+      animals.value = [...state.animals];
+      const hasAdditions = state.additions.length + state.animals.length > 0;
       stage.value = hasAdditions ? "stopped" : "idle";
       statusCode.value = hasAdditions ? "restoredFinished" : "restoredPending";
       const restoredRun = generation;
@@ -334,6 +341,7 @@ export function useKitchen() {
     saveId = randomId();
     opening.value = null;
     additions.value = [];
+    animals.value = [];
     image = null;
     cover = null;
     recording = null;
@@ -565,7 +573,7 @@ export function useKitchen() {
     page.value = "catalog";
     await refresh();
   }
-  async function addIngredient(name: string) {
+  async function addAction(name: string, kind: "ingredient" | "animal") {
     if (adding.value || stage.value !== "live" || !player || !session) return;
     adding.value = true;
     statusCode.value = "adding";
@@ -575,12 +583,13 @@ export function useKitchen() {
     const id = randomId();
     try {
       const action = actionSchema.parse(
-        await api(`/live/${liveId}/actions`, { id, ingredient: name }),
+        await api(`/live/${liveId}/actions`, { id, ingredient: name, kind }),
       );
       if (player !== current) return;
       await current.update(action.prompt);
       await api(`/live/${liveId}/actions/${id}/ack`, {});
-      additions.value.push(name);
+      if (kind === "animal") animals.value.push(name);
+      else additions.value.push(name);
       if (opening.value)
         Object.assign(opening.value, {
           title: action.title,
@@ -598,6 +607,8 @@ export function useKitchen() {
       if (statusCode.value === "adding") statusCode.value = "";
     }
   }
+  const addIngredient = (name: string) => addAction(name, "ingredient");
+  const addAnimal = (id: string) => addAction(id, "animal");
   function toggleSound() {
     muted.value = !muted.value;
     if (!muted.value) void player?.resumeAudio().catch(() => undefined);
@@ -621,6 +632,7 @@ export function useKitchen() {
           description: opening.value.description,
           descriptionEn: opening.value.descriptionEn,
           ingredients: [...additions.value],
+          animals: [...animals.value],
           createdAt: Date.now(),
         },
         image,
@@ -654,6 +666,7 @@ export function useKitchen() {
         videoPrompt: "",
       };
       additions.value = [...item.ingredients];
+      animals.value = [...(item.animals ?? [])];
       recording = item.hasVideo ? await getVideo(item.id) : null;
       if (recording) recordingUrl.value = URL.createObjectURL(recording);
       stage.value = "stopped";
@@ -728,6 +741,7 @@ export function useKitchen() {
     recordingSupported,
     recordingUrl,
     baseIngredients,
+    animals,
     login,
     logout,
     selectDish,
@@ -736,6 +750,7 @@ export function useKitchen() {
     stop,
     back,
     addIngredient,
+    addAnimal,
     toggleSound,
     save,
     openFavorite,

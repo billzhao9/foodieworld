@@ -2012,3 +2012,234 @@ button svg {
   min-height: 48px;
   min-width: 48px;
 }
+
+.animal-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #655075;
+  background: #231931;
+  border-radius: 12px;
+  padding: 0 12px;
+  min-height: 48px;
+  color: #bea7cd;
+}
+.animal-search input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  min-height: 46px;
+}
+.animal-search input::placeholder {
+  color: #a089b3;
+}
+.animal-search > button {
+  background: transparent;
+  min-width: 32px;
+  min-height: 44px;
+  color: #bea7cd;
+}
+.animal-categories {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #6b4f7b transparent;
+  margin: 10px 0 7px;
+  padding: 0 0 6px;
+}
+.animal-categories button {
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 8px 11px;
+  border-radius: 12px;
+  background: #362547;
+  border: 1px solid #59416d;
+  color: #c4add3;
+  font-size: 10px;
+}
+.animal-categories button.active {
+  background: #f3d28a;
+  color: #3b2947;
+  border-color: #f3d28a;
+  font-weight: 700;
+}
+.animal-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 3px 0 12px;
+}
+.animal-picker-toolbar > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #b19ac2;
+  font-size: 10px;
+}
+.animal-picker-toolbar > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 48px;
+  border: 1px solid #85617c;
+  background: #56374e;
+  color: #ffd1e4;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 11px;
+}
+.animal-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 365px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #775486 transparent;
+  padding: 2px 4px 3px 1px;
+}
+.animal-grid > button {
+  min-height: 86px;
+  min-width: 48px;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: #3b2a4d;
+  border: 1px solid #664974;
+  border-radius: 13px;
+  font-size: 9px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.animal-grid > button:not(:disabled):hover {
+  background: #513452;
+  border-color: #e195be;
+  transform: translateY(-2px);
+}
+.animal-grid > button:disabled {
+  opacity: 0.66;
+}
+.animal-emoji {
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 29px;
+  line-height: 1.25;
+}
+.animal-picker-note {
+  color: #ae97bd;
+  font-size: 9px;
+  line-height: 1.8;
+  margin-top: 13px;
+}
+.animal-empty {
+  text-align: center;
+  padding: 32px 15px;
+  color: #bc9ccb;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.animal-empty svg {
+  color: #d99bbe;
+  margin-bottom: 10px;
+}
+.animal-roster {
+  margin-top: 17px;
+  padding-top: 14px;
+  border-top: 1px dashed #72527e;
+}
+.animal-roster .notes-label {
+  color: #dfb3d2;
+}
+.animal-guest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.animal-guest-chips > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #755678;
+  background: #4a314e;
+  color: #edcce2;
+  border-radius: 9px;
+  padding: 5px 8px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.animal-guest-chips .animal-emoji {
+  font-size: 17px;
+}
+.animal-roster.compact {
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.animal-roster.compact .notes-label {
+  font-size: 8px;
+}
+.animal-roster.compact .animal-guest-chips {
+  gap: 5px;
+}
+.animal-roster.compact .animal-guest-chips > span {
+  font-size: 8px;
+  padding: 3px 5px;
+}
+.animal-roster.compact .animal-emoji {
+  font-size: 14px;
+}
+@media (max-width: 760px) {
+  .animal-grid {
+    max-height: 360px;
+    gap: 8px;
+  }
+  .animal-grid > button {
+    min-height: 85px;
+    font-size: 9px;
+  }
+  .animal-categories button {
+    font-size: 10px;
+  }
+  .ingredient-tabs button {
+    font-size: 10px;
+    padding: 9px 4px;
+    min-height: 44px;
+    gap: 4px;
+  }
+  .animal-roster.compact .animal-guest-chips > span {
+    font-size: 8px;
+  }
+  .animal-picker-note {
+    font-size: 10px;
+  }
+  .animal-search input {
+    font-size: 12px;
+  }
+}
+
+.lab-layout > .cooking-area,
+.lab-layout > .pantry-panel {
+  min-width: 0;
+}
+.animal-picker {
+  min-width: 0;
+}
+.animal-search {
+  min-width: 0;
+}
+.animal-categories {
+  max-width: 100%;
+}
+@media (max-width: 760px) {
+  .lab-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

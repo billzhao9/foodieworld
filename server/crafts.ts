@@ -1,8 +1,14 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Database } from "./db";
 import { ApiError, generate, type Upstream } from "./upstream";
-import { openingPrompt, additionPrompt } from "./prompts";
+import {
+  openingPrompt,
+  additionPrompt,
+  animalPrompt,
+  animalBehaviors,
+} from "./prompts";
+import { animals } from "../shared/animals";
 import {
   openingSchema,
   actionSchema,
@@ -17,10 +23,14 @@ const craftSchema = z.object({
   imageUrl: z.string().optional(),
   phase: z.enum(["idle", "planning", "imaging", "ready", "failed"]),
   additions: z.array(z.string()),
+  animals: z.array(z.string()).default([]),
+  actionOrder: z.array(z.string()).default([]),
   actions: z.record(
     z.string(),
     z.object({
       ingredient: z.string(),
+      kind: z.enum(["ingredient", "animal"]).default("ingredient"),
+      behavior: z.enum(animalBehaviors).optional(),
       result: actionSchema.optional(),
       state: z.enum(["preparing", "ready", "applied", "failed"]),
     }),
@@ -73,6 +83,8 @@ export class Crafts {
           baseIngredients,
           phase: "idle",
           additions: [],
+          animals: [],
+          actionOrder: [],
           actions: {},
         }),
       ],
@@ -113,17 +125,15 @@ export class Crafts {
           s.phase = "imaging";
         });
       }
-      const image = z
-        .object({ jobId: z.string() })
-        .parse(
-          await this.upstream("/image-jobs", {
-            requestId: `fw_${id}_image`,
-            prompt: opening.imagePrompt,
-            model: "og-image2-5-flare-low",
-            aspectRatio: "16:9",
-            endUserRef: "_enterprise",
-          }),
-        );
+      const image = z.object({ jobId: z.string() }).parse(
+        await this.upstream("/image-jobs", {
+          requestId: `fw_${id}_image`,
+          prompt: opening.imagePrompt,
+          model: "og-image2-5-flare-low",
+          aspectRatio: "16:9",
+          endUserRef: "_enterprise",
+        }),
+      );
       await this.update(id, owner, (s) => {
         s.imageJob = image.jobId;
         s.phase = "imaging";
@@ -165,37 +175,103 @@ export class Crafts {
     owner: string,
     actionId: string,
     ingredient: string,
+    kind: "ingredient" | "animal" = "ingredient",
   ): Promise<AlchemyAction> {
+    const animal =
+      kind === "animal"
+        ? animals.find((entry) => entry.id === ingredient)
+        : undefined;
     const craft = await this.update(id, owner, (s) => {
       const prior = s.actions[actionId];
-      if (prior && prior.ingredient !== ingredient)
+      if (prior && (prior.ingredient !== ingredient || prior.kind !== kind))
         throw new ApiError("REQUEST_CONFLICT", 409);
+      if (kind === "animal" && !animal)
+        throw new ApiError("INVALID_ANIMAL", 400);
       if (prior?.result) return structuredClone(s);
+      const position = s.actionOrder.indexOf(actionId);
+      if (
+        position >= 0 &&
+        s.actionOrder
+          .slice(position + 1)
+          .some((next) => s.actions[next]?.state === "applied")
+      )
+        throw new ApiError("REQUEST_CONFLICT", 409);
+      // Expiring a worker lease cannot skip a prepared/unacknowledged scene
+      // transition. Reject before buying another LLM response, across kinds.
+      if (
+        Object.entries(s.actions).some(
+          ([otherId, action]) =>
+            otherId !== actionId &&
+            (action.state === "preparing" || action.state === "ready"),
+        )
+      )
+        throw new ApiError("IN_PROGRESS", 409);
       if (s.busy && (s.busyUntil ?? 0) > Date.now())
         throw new ApiError("IN_PROGRESS", 409);
-      if (s.additions.length >= 12) throw new ApiError("INGREDIENT_LIMIT", 400);
+      if (s.additions.length + s.animals.length >= 12)
+        throw new ApiError("INGREDIENT_LIMIT", 400);
       s.busy = actionId;
       s.busyUntil = Date.now() + 240000;
-      s.actions[actionId] = { ingredient, state: "preparing" };
+      s.actions[actionId] = {
+        ingredient,
+        kind,
+        state: "preparing",
+        ...(kind === "animal"
+          ? {
+              behavior:
+                prior?.behavior ??
+                animalBehaviors[randomInt(animalBehaviors.length)],
+            }
+          : {}),
+      };
+      if (!prior) s.actionOrder.push(actionId);
       return structuredClone(s);
     });
     if (craft.actions[actionId]?.result) return craft.actions[actionId].result!;
     try {
       if (!craft.opening) throw new ApiError("NOT_READY", 409);
+      const animalNames = craft.animals.map(
+        (animalId) =>
+          animals.find((entry) => entry.id === animalId)?.nameEn ?? animalId,
+      );
+      const previousIngredients = [
+        ...craft.baseIngredients,
+        ...craft.additions,
+      ];
+      const behavior = craft.actions[actionId].behavior;
+      if (kind === "animal" && !behavior) throw new ApiError("NOT_READY", 409);
       const result = await generate(
         this.upstream,
         `fw_${id}_${actionId}`,
-        additionPrompt(craft.opening.title, craft.additions, ingredient),
+        animal && behavior
+          ? animalPrompt(
+              craft.opening.title,
+              previousIngredients,
+              animalNames,
+              animal.nameEn,
+              behavior,
+            )
+          : additionPrompt(
+              craft.opening.title,
+              previousIngredients,
+              ingredient,
+              animalNames,
+            ),
         actionSchema,
       );
       await this.update(id, owner, (s) => {
-        s.actions[actionId] = { ingredient, result, state: "ready" };
+        if (s.busy !== actionId) throw new ApiError("REQUEST_CONFLICT", 409);
+        s.actions[actionId] = {
+          ...s.actions[actionId],
+          result,
+          state: "ready",
+        };
       });
       return result;
     } catch (e) {
       await this.update(id, owner, (s) => {
         s.actions[actionId].state = "failed";
-        delete s.busy;
+        if (s.busy === actionId) delete s.busy;
       });
       throw e;
     }
@@ -206,8 +282,18 @@ export class Crafts {
       if (!a?.result) throw new ApiError("NOT_READY", 409);
       if (a.state === "applied") return;
       if (s.busy !== actionId) throw new ApiError("REQUEST_CONFLICT", 409);
+      const position = s.actionOrder.indexOf(actionId);
+      if (
+        position >= 0 &&
+        s.actionOrder.slice(0, position).some((prior) => {
+          const state = s.actions[prior]?.state;
+          return state === "preparing" || state === "ready";
+        })
+      )
+        throw new ApiError("IN_PROGRESS", 409);
       a.state = "applied";
-      s.additions.push(a.ingredient);
+      if (a.kind === "animal") s.animals.push(a.ingredient);
+      else s.additions.push(a.ingredient);
       if (s.opening)
         Object.assign(s.opening, {
           title: a.result.title,

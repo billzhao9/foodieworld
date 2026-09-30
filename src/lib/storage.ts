@@ -54,6 +54,9 @@ function isCreation(value: unknown): value is SavedCreation {
     typeof row.description === "string" &&
     Array.isArray(row.ingredients) &&
     row.ingredients.every((item) => typeof item === "string") &&
+    (row.animals === undefined ||
+      (Array.isArray(row.animals) &&
+        row.animals.every((item) => typeof item === "string"))) &&
     typeof row.createdAt === "number" &&
     typeof row.imageUrl === "string" &&
     typeof row.hasVideo === "boolean"

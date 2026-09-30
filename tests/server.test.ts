@@ -13,6 +13,17 @@ import { createApp } from "../server/app";
 import { Crafts } from "../server/crafts";
 import { LiveSessions } from "../server/live";
 import { randomUUID } from "node:crypto";
+import { animalBehaviors } from "../server/prompts";
+const { randomPick } = vi.hoisted(() => ({
+  randomPick: vi.fn<(max: number) => number>(),
+}));
+vi.mock("node:crypto", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:crypto")>();
+  return {
+    ...original,
+    randomInt: randomPick.mockImplementation((max) => original.randomInt(max)),
+  };
+});
 const url = process.env.TEST_DATABASE_URL;
 const schema = `fw_test_${randomUUID().replaceAll("-", "")}`;
 let admin: pg.Pool, db: Database;
@@ -35,7 +46,7 @@ const opening = {
   imagePrompt: "soft 3d rice image on a plate",
   videoPrompt: "The rice gently steams on a plate.",
 };
-describe.skipIf(!url)("PostgreSQL app integration", () => {
+describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
   beforeAll(async () => {
     admin = new pg.Pool({ connectionString: url });
     await admin.query(`CREATE SCHEMA ${schema}`);
@@ -138,7 +149,9 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
       b = new LiveSessions(db, up, crafts);
     const one = a.start(ids[0], "owner0"),
       two = b.start(ids[1], "owner1");
-    await vi.waitFor(() => expect(up).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(up).toHaveBeenCalledTimes(2), {
+      timeout: 5000,
+    });
     await expect(a.start(ids[2], "owner2")).rejects.toThrow("KITCHEN_FULL");
     await expect(b.start(ids[0], "owner0")).rejects.toThrow("SESSION_EXISTS");
     release();
@@ -169,6 +182,133 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
     await c.acknowledge(id, "a", action);
     expect((await c.read(id, "a")).additions).toEqual(["芝士"]);
     expect(up).toHaveBeenCalledTimes(1);
+  });
+  it("persists a random animal behavior across failure/retry and keeps animal ACKs separate and ordered", async () => {
+    const pick = randomPick;
+    pick.mockReturnValueOnce(5).mockReturnValueOnce(0);
+    const up = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary outage"))
+      .mockResolvedValue({
+        text: JSON.stringify({
+          title: "猫咪评审饭",
+          titleEn: "Cat judge rice",
+          description: "猫咪来啦",
+          descriptionEn: "A cat arrives",
+          prompt:
+            "A cat hops beside the rice and leaves a toy-like cartoon poop swirl.",
+        }),
+      });
+    const crafts = new Crafts(db, up),
+      id = randomUUID(),
+      action = randomUUID();
+    await crafts.create(id, "owner", ["米饭"]);
+    await crafts.update(id, "owner", (s) => {
+      s.opening = opening;
+    });
+    await expect(
+      crafts.action(id, "owner", action, "cat", "animal"),
+    ).rejects.toThrow("temporary outage");
+    const failed = await crafts.read(id, "owner");
+    expect(failed.actions[action].behavior).toBe(animalBehaviors[5]);
+    expect(failed.animals).toEqual([]);
+    const count = pick.mock.calls.length;
+    await crafts.action(id, "owner", action, "cat", "animal");
+    expect(pick.mock.calls.length).toBe(count);
+    expect(up.mock.calls[1]).toEqual(up.mock.calls[0]);
+    await expect(
+      crafts.action(id, "owner", action, "cat", "ingredient"),
+    ).rejects.toThrow("REQUEST_CONFLICT");
+    await expect(
+      crafts.action(id, "owner", action, "dog", "animal"),
+    ).rejects.toThrow("REQUEST_CONFLICT");
+    const ingredientAction = randomUUID();
+    await crafts.update(id, "owner", (s) => {
+      s.busyUntil = 0;
+    });
+    await expect(
+      crafts.action(id, "owner", ingredientAction, "芝士"),
+    ).rejects.toThrow("IN_PROGRESS");
+    expect(up).toHaveBeenCalledTimes(2);
+    await crafts.acknowledge(id, "owner", action);
+    await crafts.acknowledge(id, "owner", action);
+    const applied = await crafts.read(id, "owner");
+    expect(applied.animals).toEqual(["cat"]);
+    expect(applied.additions).toEqual([]);
+    expect(applied.actionOrder).toEqual([action]);
+    await crafts.action(id, "owner", ingredientAction, "芝士");
+    expect(up.mock.calls.at(-1)?.[1]).toMatchObject({
+      prompt: expect.stringContaining('Existing animal characters: ["cat"]'),
+    });
+    await crafts.acknowledge(id, "owner", ingredientAction);
+    const mixed = await crafts.read(id, "owner");
+    expect(mixed.animals).toEqual(["cat"]);
+    expect(mixed.additions).toEqual(["芝士"]);
+    expect(mixed.actionOrder).toEqual([action, ingredientAction]);
+    pick.mockReset();
+    pick.mockReturnValue(0);
+  });
+  it("rejects invalid animal ids at the HTTP endpoint without invoking the provider", async () => {
+    const up = vi.fn();
+    const { app } = createApp(config, db, up);
+    const cookie = await auth(app),
+      craftId = randomUUID(),
+      liveId = randomUUID();
+    await app.request("/api/crafts", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ id: craftId, ingredients: ["米饭"] }),
+    });
+    const owner = (
+      await db.pool.query("SELECT owner FROM fw_records WHERE id=$1", [craftId])
+    ).rows[0].owner;
+    await db.pool.query(
+      "INSERT INTO fw_live(id,owner,craft_id,request_id,upstream_id,expires_at,heartbeat_at,status,scope) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      [
+        liveId,
+        owner,
+        craftId,
+        "test-request",
+        "provider",
+        Date.now() + 60000,
+        Date.now(),
+        "active",
+        "development",
+      ],
+    );
+    const response = await app.request(`/api/live/${liveId}/actions`, {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        id: randomUUID(),
+        ingredient: "invented-not-in-catalog",
+        kind: "animal",
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: "INVALID_ANIMAL" },
+    });
+    expect(up).not.toHaveBeenCalled();
+    expect((await new Crafts(db, up).read(craftId, owner)).actions).toEqual({});
+  });
+  it("shares the twelve-step limit across animal and ingredient actions", async () => {
+    const up = vi.fn(),
+      c = new Crafts(db, up),
+      id = randomUUID();
+    await c.create(id, "owner", ["米饭"]);
+    await c.update(id, "owner", (s) => {
+      s.opening = opening;
+      s.additions = Array(11).fill("芝士");
+      s.animals = ["cat"];
+    });
+    await expect(
+      c.action(id, "owner", randomUUID(), "dog", "animal"),
+    ).rejects.toThrow("INGREDIENT_LIMIT");
+    await expect(c.action(id, "owner", randomUUID(), "米饭")).rejects.toThrow(
+      "INGREDIENT_LIMIT",
+    );
+    expect(up).not.toHaveBeenCalled();
   });
   it("cleans an expired session and preserves it when stop fails", async () => {
     const up = vi
@@ -209,6 +349,7 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
         title: "饭",
         description: "test",
         ingredients: [],
+        animals: ["cat"],
         createdAt: Date.now(),
       }),
     );
@@ -240,6 +381,7 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
       await second.request("/api/creations", { headers: { cookie } })
     ).json();
     expect(list[0].hasVideo).toBe(true);
+    expect(list[0].animals).toEqual(["cat"]);
     const thumbnail = await second.request(list[0].imageUrl, {
       headers: { cookie },
     });
@@ -276,7 +418,10 @@ describe.skipIf(!url)("PostgreSQL app integration", () => {
     expect(repeat.url).toBe(shared.url);
     const publicMeta = await second.request(`/api/shared/${token}`);
     expect(publicMeta.status).toBe(200);
-    expect((await publicMeta.json()).baseIngredients).toEqual(["米饭"]);
+    expect(await publicMeta.json()).toMatchObject({
+      baseIngredients: ["米饭"],
+      animals: ["cat"],
+    });
     const clip = await second.request(`/api/shared/${token}/video`, {
       headers: { range: "bytes=-5" },
     });

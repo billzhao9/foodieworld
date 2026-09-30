@@ -24,6 +24,7 @@ import {
   LoaderCircle,
   Star,
   Moon,
+  PawPrint,
 } from "lucide-vue-next";
 import { ingredients, type IngredientCategory } from "../shared/catalog";
 import IngredientCategories from "./components/IngredientCategories.vue";
@@ -32,6 +33,8 @@ import { useKitchen } from "./useKitchen";
 import CreationCard from "./components/CreationCard.vue";
 import PublicCreation from "./components/PublicCreation.vue";
 import KitchenArt from "./components/KitchenArt.vue";
+import AnimalPicker from "./components/AnimalPicker.vue";
+import AnimalRoster from "./components/AnimalRoster.vue";
 import IngredientArt from "./components/IngredientArt.vue";
 const {
   authenticated,
@@ -62,6 +65,8 @@ const {
   stop,
   back,
   addIngredient,
+  addAnimal,
+  animals: visitingAnimals,
   toggleSound,
   save,
   openFavorite,
@@ -106,7 +111,7 @@ const filteredIngredients = computed(() =>
 const password = ref("");
 const search = ref("");
 const pageIndex = ref(0);
-const ingredientKind = ref<"real" | "magic">("real");
+const ingredientKind = ref<"real" | "magic" | "animal">("real");
 const custom = ref("");
 const busy = computed(() =>
   ["planning", "imaging", "connecting"].includes(stage.value),
@@ -544,14 +549,31 @@ async function addCustom() {
                   }}</span>
                 </div></template
               >
+              <AnimalRoster :ids="visitingAnimals" />
             </div>
           </section>
           <section class="pantry-panel">
             <div class="pantry-heading">
               <span class="small-wand"><WandSparkles :size="23" /></span>
               <div>
-                <h2>{{ t("ingredients") }}</h2>
-                <p>{{ t("ingredientHint") }}</p>
+                <h2>
+                  {{
+                    t(
+                      ingredientKind === "animal"
+                        ? "animalTitle"
+                        : "ingredients",
+                    )
+                  }}
+                </h2>
+                <p>
+                  {{
+                    t(
+                      ingredientKind === "animal"
+                        ? "animalSubtitle"
+                        : "ingredientHint",
+                    )
+                  }}
+                </p>
               </div>
             </div>
             <div class="ingredient-tabs">
@@ -564,7 +586,12 @@ async function addCustom() {
                 :class="{ active: ingredientKind === 'magic' }"
                 @click="ingredientKind = 'magic'"
               >
-                <Sparkles :size="13" />{{ t("magic") }}
+                <Sparkles :size="13" />{{ t("magic") }}</button
+              ><button
+                :class="{ active: ingredientKind === 'animal' }"
+                @click="ingredientKind = 'animal'"
+              >
+                <PawPrint :size="13" />{{ t("animalTab") }}
               </button>
             </div>
             <IngredientCategories
@@ -572,7 +599,13 @@ async function addCustom() {
               v-model="pantryCategory"
               compact
             />
-            <div class="pantry-grid">
+            <AnimalPicker
+              v-if="ingredientKind === 'animal'"
+              :disabled="stage !== 'live'"
+              :pending="adding"
+              :invite="addAnimal"
+            />
+            <div v-else class="pantry-grid">
               <button
                 v-for="ingredient in pantry"
                 :key="ingredient.id"
@@ -587,7 +620,11 @@ async function addCustom() {
                 ><Plus :size="13" class="ingredient-plus" />
               </button>
             </div>
-            <form class="custom-ingredient" @submit.prevent="addCustom">
+            <form
+              v-if="ingredientKind !== 'animal'"
+              class="custom-ingredient"
+              @submit.prevent="addCustom"
+            >
               <input
                 v-model="custom"
                 :placeholder="t('custom')"
@@ -606,7 +643,15 @@ async function addCustom() {
             </form>
             <p class="pantry-footnote">
               <Sparkles :size="13" />{{
-                adding ? t("adding") : stage === "live" ? status : t("addHint")
+                adding
+                  ? t(ingredientKind === "animal" ? "animalArriving" : "adding")
+                  : stage === "live"
+                    ? status
+                    : t(
+                        ingredientKind === "animal"
+                          ? "animalStartHint"
+                          : "addHint",
+                      )
               }}
             </p>
           </section>

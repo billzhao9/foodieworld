@@ -2,6 +2,7 @@
 import { ArrowRight, Film, Heart } from "lucide-vue-next";
 import type { SavedCreation } from "../../shared/contracts";
 import { t, localized as l } from "../i18n";
+import AnimalRoster from "./AnimalRoster.vue";
 import ShareCreation from "./ShareCreation.vue";
 defineProps<{ item: SavedCreation }>();
 defineEmits<{ open: [item: SavedCreation] }>();
@@ -34,6 +35,7 @@ defineEmits<{ open: [item: SavedCreation] }>();
     <div class="dish-info">
       <h2>{{ l(item.title, item.titleEn || item.title) }}</h2>
       <p>{{ l(item.description, item.descriptionEn || item.description) }}</p>
+      <AnimalRoster :ids="item.animals" compact />
       <button class="card-link creation-open" @click="$emit('open', item)">
         {{ t("openCreation") }}<ArrowRight :size="15" /></button
       ><ShareCreation

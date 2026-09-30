@@ -10,6 +10,7 @@ import {
 import type { SavedCreation } from "../../shared/contracts";
 import { ingredients } from "../../shared/catalog";
 import { t, localized as l } from "../i18n";
+import AnimalRoster from "./AnimalRoster.vue";
 import ShareCreation from "./ShareCreation.vue";
 const props = defineProps<{ token: string }>();
 const item = ref<SavedCreation | null>(null),
@@ -127,8 +128,13 @@ onUnmounted(() => controller.abort());
               }}</span>
             </div></template
           >
+          <AnimalRoster :ids="item.animals" />
           <p
-            v-if="!item.baseIngredients?.length && !item.ingredients.length"
+            v-if="
+              !item.baseIngredients?.length &&
+              !item.ingredients.length &&
+              !item.animals?.length
+            "
             class="shared-no-ingredients"
           >
             {{ t("sharedSecretRecipe") }}
