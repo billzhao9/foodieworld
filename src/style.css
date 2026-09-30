@@ -2004,3 +2004,11 @@ button svg {
     width: 12px;
   }
 }
+
+/* Keep all interactive targets comfortable on small touch screens. */
+.app-world button,
+.app-world input,
+.app-world .shared-home {
+  min-height: 48px;
+  min-width: 48px;
+}
