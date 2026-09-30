@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { animals as animalCatalog } from "../shared/animals";
 import { combinations } from "../shared/combinations";
 import { cookware } from "../shared/cookware";
 import {
@@ -63,6 +64,8 @@ const {
   description,
   additions,
   adding,
+  additionQueue,
+  cancelAddition,
   remaining,
   muted,
   audioBlocked,
@@ -254,6 +257,28 @@ const ingredientName = (id: string) => {
   );
   return i ? l(i.name, i.nameEn) : id;
 };
+function queuedName(item: { name: string; kind: string }) {
+  const animal =
+    item.kind === "animal"
+      ? animalCatalog.find((a) => a.id === item.name)
+      : undefined;
+  return animal
+    ? `${animal.emoji} ${l(animal.name, animal.nameEn)}`
+    : translateAddition(item.name);
+}
+function queueStatus(status: string) {
+  const labels: Record<string, [string, string]> = {
+    queued: ["等待中", "Queued"],
+    preparing: ["正在构思", "Preparing"],
+    applying: ["正在发送", "Sending"],
+    sent: ["已发送到画面", "Sent to scene"],
+    failed: ["失败", "Failed"],
+    cancelled: ["未发送", "Not sent"],
+    uncertain: ["结果待确认", "Unconfirmed"],
+  };
+  const label = labels[status]!;
+  return l(label[0], label[1]);
+}
 function translateAddition(value: string) {
   const i = ingredients.find((i) => i.name === value || i.nameEn === value);
   return i ? l(i.name, i.nameEn) : value;
@@ -955,17 +980,44 @@ async function addCustom() {
               v-model="pantryCategory"
               compact
             />
+            <div
+              v-if="additionQueue.length"
+              class="addition-queue"
+              aria-live="polite"
+            >
+              <strong>{{ l("加料队列", "Addition queue") }}</strong>
+              <p>
+                {{
+                  l(
+                    "可以连续点选；按顺序变化。已发送表示模型已接收，具体效果请看画面。本轮结束后未发送项会取消。",
+                    "Keep picking; changes run in order. Sent means accepted by the model, not a verified visual result. Unsent items are cancelled when this round ends.",
+                  )
+                }}
+              </p>
+              <ol>
+                <li v-for="item in additionQueue" :key="item.id">
+                  <span>{{ queuedName(item) }}</span
+                  ><small>{{ queueStatus(item.status) }}</small
+                  ><button
+                    v-if="item.status === 'queued'"
+                    :aria-label="l('取消 ', 'Cancel ') + queuedName(item)"
+                    @click="cancelAddition(item.id)"
+                  >
+                    <X :size="14" />
+                  </button>
+                </li>
+              </ol>
+            </div>
             <AnimalPicker
               v-if="ingredientKind === 'animal'"
               :disabled="stage !== 'live'"
-              :pending="adding"
               :invite="addAnimal"
             />
             <div v-else-if="pantry.length" class="pantry-grid">
               <button
                 v-for="ingredient in pantry"
                 :key="ingredient.id"
-                :disabled="stage !== 'live' || adding"
+                :disabled="stage !== 'live'"
                 @click="addIngredient(ingredient.name)"
                 :class="{ magical: ingredient.kind === 'magic' }"
               >
@@ -987,9 +1039,9 @@ async function addCustom() {
                 :placeholder="t('custom')"
                 :aria-label="t('custom')"
                 maxlength="80"
-                :disabled="stage !== 'live' || adding"
+                :disabled="stage !== 'live'"
               /><button
-                :disabled="stage !== 'live' || adding || !custom.trim()"
+                :disabled="stage !== 'live' || !custom.trim()"
                 :aria-label="t('add')"
               >
                 <LoaderCircle v-if="adding" class="spin" :size="18" /><Plus

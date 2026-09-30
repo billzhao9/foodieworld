@@ -18,6 +18,7 @@ import { ApiError, makeUpstream, type Upstream } from "./upstream";
 import { Crafts } from "./crafts";
 import { LiveSessions } from "./live";
 import { mediaResponse } from "./media";
+import { finalizeRecording } from "./recording";
 const uuid = z.string().uuid();
 const metaSchema = z.object({
   id: uuid,
@@ -366,7 +367,12 @@ export function createApp(
         JSON.stringify(meta),
         Buffer.from(await image.arrayBuffer()),
         image.type,
-        video instanceof File ? Buffer.from(await video.arrayBuffer()) : null,
+        video instanceof File
+          ? await finalizeRecording(
+              Buffer.from(await video.arrayBuffer()),
+              video.type,
+            )
+          : null,
         video instanceof File ? video.type : null,
         cover instanceof File ? Buffer.from(await cover.arrayBuffer()) : null,
         cover instanceof File ? cover.type : null,

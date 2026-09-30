@@ -127,6 +127,14 @@ const copy = {
     "直播已结束，但浏览器未交付录像。当前仅有图片，未保存视频；请勿把图片收藏当作录像。",
     "The live stream ended, but the browser did not return a recording. Only the image is available; no video was saved.",
   ],
+  QUEUE_FULL: [
+    "队列已有 8 项，请等一项完成后继续添加。",
+    "Eight changes are pending. Wait for one to finish before adding more.",
+  ],
+  QUEUE_CLOSED: [
+    "这一轮已结束，未发送的加料不会自动开启新一轮。",
+    "This round has ended. Pending changes will not start a new paid session.",
+  ],
   SAVE_FAILED: [
     "自动保存未完成，录像仍在本页，请点保存重试后再离开。",
     "Saving failed. Your recording is still on this page; retry saving before leaving.",
@@ -186,6 +194,19 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
   return data as T;
 }
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+export interface QueuedAddition {
+  id: string;
+  name: string;
+  kind: "ingredient" | "animal";
+  status:
+    | "queued"
+    | "preparing"
+    | "applying"
+    | "sent"
+    | "failed"
+    | "cancelled"
+    | "uncertain";
+}
 export function useKitchen() {
   const authenticated = ref(false),
     authLoading = ref(true),
@@ -202,6 +223,8 @@ export function useKitchen() {
     | "stopped"
     | "error"
   >("idle");
+  const additionQueue = ref<QueuedAddition[]>([]);
+  let queueEpoch = 0;
   const selectedCookware = ref<z.infer<typeof cookwareSchema>>();
   const activeCookware = ref<z.infer<typeof cookwareSchema>>();
   const errorCode = ref(""),
@@ -424,6 +447,8 @@ export function useKitchen() {
     }
   }
   function reset() {
+    cancelPendingAdditions();
+    additionQueue.value = [];
     generation++;
     craftId = randomId();
     saveId = randomId();
@@ -694,6 +719,7 @@ export function useKitchen() {
   }
   async function stop() {
     if (stopTask) return stopTask;
+    cancelPendingAdditions();
     voiceGeneration++;
     const unusedAudio = pendingAudio;
     pendingAudio = undefined;
@@ -747,41 +773,115 @@ export function useKitchen() {
     page.value = "catalog";
     await refresh();
   }
-  async function addAction(name: string, kind: "ingredient" | "animal") {
-    if (adding.value || stage.value !== "live" || !player || !session) return;
-    adding.value = true;
-    statusCode.value = "adding";
+  function cancelPendingAdditions() {
+    queueEpoch++;
+    for (const item of additionQueue.value) {
+      if (item.status === "queued") item.status = "cancelled";
+      else if (item.status === "preparing") item.status = "cancelled";
+      else if (item.status === "applying") item.status = "uncertain";
+    }
+    adding.value = false;
+  }
+  function cancelAddition(id: string) {
+    const item = additionQueue.value.find((item) => item.id === id);
+    if (item?.status === "queued") item.status = "cancelled";
+  }
+  function addAction(name: string, kind: "ingredient" | "animal") {
+    if (stage.value !== "live" || !player || !session) {
+      errorCode.value = "QUEUE_CLOSED";
+      return;
+    }
+    if (
+      additionQueue.value.filter((item) =>
+        ["queued", "preparing", "applying"].includes(item.status),
+      ).length >= 8
+    ) {
+      errorCode.value = "QUEUE_FULL";
+      return;
+    }
+    if (
+      additions.value.length +
+        animals.value.length +
+        additionQueue.value.filter((item) =>
+          ["queued", "preparing", "applying"].includes(item.status),
+        ).length >=
+      12
+    ) {
+      errorCode.value = "INGREDIENT_LIMIT";
+      return;
+    }
     errorCode.value = "";
+    additionQueue.value.push({ id: randomId(), name, kind, status: "queued" });
+    void processAdditions();
+  }
+  async function processAdditions() {
+    if (adding.value || !player || !session) return;
+    adding.value = true;
+    const epoch = queueEpoch;
     const current = player;
     const liveId = session.id;
-    const id = randomId();
+    const active = () =>
+      epoch === queueEpoch && player === current && stage.value === "live";
     try {
-      const action = actionSchema.parse(
-        await api(`/live/${liveId}/actions`, { id, ingredient: name, kind }),
-      );
-      if (player !== current) return;
-      latestAudio = action;
-      latestActionId = id;
-      await current.update(action.prompt, audioPrompt());
-      await api(`/live/${liveId}/actions/${id}/ack`, {});
-      void narrateCurrent(2000);
-      if (kind === "animal") animals.value.push(name);
-      else additions.value.push(name);
-      if (opening.value)
-        Object.assign(opening.value, {
-          title: action.title,
-          titleEn: action.titleEn,
-          description: action.description,
-          descriptionEn: action.descriptionEn,
-        });
-      await wait(4000);
-    } catch (e) {
-      failure(e);
-      statusCode.value = "uncertain";
-      await stop();
+      while (active()) {
+        const item = additionQueue.value.find(
+          (item) => item.status === "queued",
+        );
+        if (!item) break;
+        if (!session || session.expiresAt - Date.now() < 8000) {
+          errorCode.value = "QUEUE_CLOSED";
+          await stop();
+          return;
+        }
+        item.status = "preparing";
+        statusCode.value = "adding";
+        try {
+          const action = actionSchema.parse(
+            await api(`/live/${liveId}/actions`, {
+              id: item.id,
+              ingredient: item.name,
+              kind: item.kind,
+            }),
+          );
+          if (!active()) return;
+          latestAudio = action;
+          latestActionId = item.id;
+          item.status = "applying";
+          await current.update(action.prompt, audioPrompt());
+          if (!active()) return;
+          // Capture accepted facts before awaiting persistence, so a concurrent
+          // stop saves the same ingredients that were sent to the live model.
+          item.status = "sent";
+          if (item.kind === "animal") animals.value.push(item.name);
+          else additions.value.push(item.name);
+          if (opening.value)
+            Object.assign(opening.value, {
+              title: action.title,
+              titleEn: action.titleEn,
+              description: action.description,
+              descriptionEn: action.descriptionEn,
+            });
+          await api(`/live/${liveId}/actions/${item.id}/ack`, {});
+          if (!active()) return;
+          void narrateCurrent(1000);
+          // Do not overwrite the scene immediately with the next queued change.
+          await wait(6000);
+        } catch (e) {
+          if (!active()) return;
+          item.status = ["sent", "applying"].includes(item.status)
+            ? "uncertain"
+            : "failed";
+          failure(e);
+          statusCode.value = "uncertain";
+          await stop();
+          return;
+        }
+      }
     } finally {
-      adding.value = false;
-      if (statusCode.value === "adding") statusCode.value = "";
+      if (epoch === queueEpoch) {
+        adding.value = false;
+        if (statusCode.value === "adding") statusCode.value = "";
+      }
     }
   }
   const addIngredient = (name: string) => addAction(name, "ingredient");
@@ -953,6 +1053,8 @@ export function useKitchen() {
     description,
     additions,
     adding,
+    additionQueue,
+    cancelAddition,
     remaining,
     muted,
     audioBlocked,

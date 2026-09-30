@@ -61,11 +61,19 @@ beforeEach(() => {
   vi.mocked(connectLive).mockImplementation(async (options) => {
     callbacks = options;
     options.onPlaying?.();
-    return { close: vi.fn().mockResolvedValue(clip) } as any;
+    return {
+      close: vi.fn().mockResolvedValue(clip),
+      update: vi.fn().mockResolvedValue(undefined),
+      stopSpeech: vi.fn(),
+      speak: vi.fn().mockResolvedValue(undefined),
+    } as any;
   });
   vi.mocked(saveCreation).mockResolvedValue(undefined);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 async function live() {
   const kitchen = useKitchen();
   kitchen.videoElement.value = {
@@ -129,4 +137,69 @@ it("does not discard the current recording when saving before an edit fails", as
   expect(await k.editIngredients(["芝士"], "skillet")).toBe(false);
   expect(k.selected.value?.ingredients).toEqual(["番茄"]);
   expect(k.recordingUrl.value).toMatch(/^blob:/);
+});
+
+function mockActions() {
+  const original = vi.mocked(fetch).getMockImplementation()!;
+  const names: string[] = [];
+  vi.mocked(fetch).mockImplementation(async (input, init) => {
+    if (String(input).endsWith("/actions")) {
+      const body = JSON.parse(String(init?.body));
+      names.push(body.ingredient);
+      return Response.json({
+        title: body.ingredient,
+        titleEn: body.ingredient,
+        description: "Changed",
+        descriptionEn: "Changed",
+        prompt: `Add ${body.ingredient} to the scene`,
+      });
+    }
+    return original(input, init);
+  });
+  return names;
+}
+it("queues mixed rapid clicks in order with a scene dwell between accepted changes", async () => {
+  vi.useFakeTimers();
+  const k = await live();
+  const names = mockActions();
+  k.addIngredient("云端彩珠");
+  k.addAnimal("turtle");
+  k.addIngredient("芝士");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(names).toEqual(["云端彩珠"]);
+  expect(k.additionQueue.value.map((a) => a.status)).toEqual([
+    "sent",
+    "queued",
+    "queued",
+  ]);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(names).toEqual(["云端彩珠", "turtle"]);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(names).toEqual(["云端彩珠", "turtle", "芝士"]);
+  expect(k.animals.value).toEqual(["turtle"]);
+  await k.stop();
+});
+it("cancels unsent additions on stop and never sends them into a later round", async () => {
+  vi.useFakeTimers();
+  const k = await live();
+  const names = mockActions();
+  k.addIngredient("云端彩珠");
+  k.addAnimal("turtle");
+  await vi.advanceTimersByTimeAsync(0);
+  await k.stop();
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(names).toEqual(["云端彩珠"]);
+  expect(k.additionQueue.value[1].status).toBe("cancelled");
+});
+it("supports removing a waiting action and reports queue capacity instead of silently ignoring taps", async () => {
+  vi.useFakeTimers();
+  const k = await live();
+  mockActions();
+  for (let i = 0; i < 9; i++) k.addIngredient(`加料${i}`);
+  expect(k.additionQueue.value).toHaveLength(8);
+  expect(k.error.value).toContain("8");
+  k.cancelAddition(k.additionQueue.value[1].id);
+  expect(k.additionQueue.value[1].status).toBe("cancelled");
+  await vi.advanceTimersByTimeAsync(0);
+  await k.stop();
 });

@@ -1,23 +1,29 @@
 <script setup lang="ts">
-import { ref, nextTick } from "vue";
+import { ref, onUnmounted } from "vue";
+import { beginReplay } from "../lib/replay-start";
 import { Play, Maximize, X } from "lucide-vue-next";
 import { localized as l } from "../i18n";
 const props = defineProps<{ src: string; poster: string; title: string }>();
 const dialog = ref<HTMLDialogElement>();
 const video = ref<HTMLVideoElement>();
-const error = ref(false);
-async function open() {
-  error.value = false;
+const state = ref<"loading" | "playing" | "blocked" | "error">("loading");
+let dispose: (() => void) | undefined;
+function open() {
+  dispose?.();
   dialog.value?.showModal();
-  await nextTick();
-  void video.value?.play().catch(() => {
-    /* Native controls remain available. */
-  });
+  if (video.value)
+    dispose = beginReplay(
+      video.value,
+      props.src,
+      (value) => (state.value = value),
+    );
 }
 function close() {
-  video.value?.pause();
+  dispose?.();
+  dispose = undefined;
   dialog.value?.close();
 }
+onUnmounted(() => dispose?.());
 function fullscreen() {
   const element = video.value as
     | (HTMLVideoElement & { webkitEnterFullscreen?: () => void })
@@ -46,7 +52,7 @@ function fullscreen() {
       ref="dialog"
       class="replay-dialog"
       :aria-label="title"
-      @close="video?.pause()"
+      @close="dispose?.()"
       @click="
         (event) => {
           if (event.target === dialog) close();
@@ -61,16 +67,19 @@ function fullscreen() {
       </header>
       <video
         ref="video"
-        :src="src"
         :poster="poster"
         :aria-label="title"
         controls
         playsinline
         preload="none"
-        @error="error = true"
+        @waiting="state = 'loading'"
+        @playing="state = 'playing'"
       />
       <footer>
-        <p v-if="error" role="alert">
+        <p v-if="state === 'loading'" role="status">
+          {{ l("正在缓冲视频…", "Buffering video…") }}
+        </p>
+        <p v-if="state === 'error'" role="alert">
           {{
             l(
               "视频加载失败，请关闭后重试。",
@@ -78,6 +87,9 @@ function fullscreen() {
             )
           }}
         </p>
+        <button v-if="state === 'blocked' || state === 'error'" @click="open">
+          <Play :size="18" />{{ l("点击播放", "Tap to play") }}
+        </button>
         <button @click="fullscreen">
           <Maximize :size="18" />{{ l("全屏播放", "Fullscreen") }}
         </button>

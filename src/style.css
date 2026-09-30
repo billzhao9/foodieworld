@@ -3020,3 +3020,10 @@ html, body { overscroll-behavior-y: none; }
 @keyframes kitchen-push { from { opacity: .5; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes kitchen-pop { from { opacity: .5; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes kitchen-sheet { from { opacity: .5; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+.addition-queue { margin: 12px 0; padding: 14px; border: 1px solid #705282; border-radius: 16px; background: #30223f; }
+.addition-queue p { font-size: 12px; line-height: 1.6; color: #cdbbdf; margin: 8px 0; }
+.addition-queue ol { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow-y: auto; scrollbar-width: none; }
+.addition-queue li { display: flex; align-items: center; gap: 8px; min-height: 48px; }
+.addition-queue li > span { flex: 1; overflow-wrap: anywhere; }
+.addition-queue small { color: #f7d98c; }
+.addition-queue button { min-width: 48px; min-height: 48px; background: transparent; color: #e9cfe7; }

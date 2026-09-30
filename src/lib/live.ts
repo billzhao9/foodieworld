@@ -282,6 +282,8 @@ export async function connectLive(args: {
       ]);
       recorder = new MediaRecorder(stream, {
         mimeType: formats.find((type) => MediaRecorder.isTypeSupported(type)),
+        videoBitsPerSecond: 4_000_000,
+        audioBitsPerSecond: 128_000,
       });
       recordingStopped = new Promise<void>((resolve) => {
         recorder!.addEventListener("stop", () => resolve(), { once: true });

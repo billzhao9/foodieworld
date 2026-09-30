@@ -4,6 +4,16 @@
 
 Foodie World turns “what if?” into a cooking show you can play. Mix ingredients from East and West, choose your cookware, and watch an AI-generated dish come to life in real-time video. Then change the story: add a little stardust, invite a mischievous animal judge, or push a beautiful meal into glorious culinary chaos. With bilingual comic commentary and a gallery of recorded creations, every experiment becomes a tiny performance worth sharing. Foodie World makes generative video hands-on: your next ingredient becomes the next scene.
 
+## A peek inside
+
+Real screenshots of the English mobile interface: build a basket, fine-tune a dish without leaving the kitchen, and replay the results with friends.
+
+<p align="center">
+  <img src="docs/screenshots/pantry-en.png" width="250" alt="English ingredient pantry with categories, a custom basket, and cookware choices" />
+  <img src="docs/screenshots/editor-en.png" width="250" alt="In-place mobile editor for ingredients and cookware" />
+  <img src="docs/screenshots/gallery-en.png" width="250" alt="Recorded cooking creations with playback and sharing controls" />
+</p>
+
 ## Explore the kitchen
 
 A mobile-friendly, English–Chinese cooking playground with shared-password access, animated food experiments, and real video recording.
@@ -18,7 +28,7 @@ The experience generates dish names, playful descriptions, and cooking videos—
 
 ## Cooking you can influence
 
-Start with an opening image, then watch the scene develop through a live video session. Add real or imaginary ingredients to request the next transformation in the same session. Prompts aim to preserve the existing dish, cookware, characters, and setting while giving each addition a visible physical effect and a comic payoff.
+Start with an opening image, then watch the scene develop through a live video session. Tap several real or imaginary ingredients and animal guests to queue transformations in the same session. A shared queue runs them in order, shows each request’s status, and lets you cancel waiting items. Each accepted change gets a short scene-development interval before the next one. Queue acceptance does not guarantee every visual detail will appear, and pending items are cancelled when the session ends. Prompts aim to preserve the existing dish, cookware, characters, and setting while giving each addition a visible physical effect and a comic payoff.
 
 A three-stage progress display shows elapsed time and an estimated remaining range. Estimates use recent successful generation times in the current browser and exclude obvious cache hits. This is an estimate, not an upstream completion percentage. Longer waits receive a clear status message; generation is only marked complete when video actually starts playing.
 
@@ -80,13 +90,15 @@ pnpm start
 
 Integration tests run in an isolated temporary database schema. They are skipped if a test database is not configured.
 
+Install FFmpeg on the server (`ffmpeg` must be available on `PATH`). Browser-recorded fragmented MP4 files are converted to 720p H.264/AAC with a stable frame rate and a front-loaded seek index before saving. This improves playback compatibility and reduces transfer size; private originals are retained under `.data/recording-originals/` on the server.
+
 Build before starting production mode. Set `NODE_ENV=production`, `MMLONE_BASE_URL=https://mmlone.com`, `MMLONE_ENVIRONMENT=production`, and `NARRATION_PROVIDER=mmlone` in the private server environment. Production requires an HTTPS upstream, forces secure session cookies, and restricts browser mutations to `https://foodieworld.mmlone.com`. The server serves both the frontend and the API. Set `SECURE_COOKIES=true` when serving development over HTTPS. Additional development origins can be specified as a comma-separated list in `APP_ORIGINS`; production ignores this override.
 
 The application uses Vue 3, TypeScript, Vite, a Hono server, PostgreSQL, and the Reactor SDK. Automated checks cover application behavior and data contracts; visual quality, ingredient fidelity, and continuity still require watching the generated output.
 
 ## Repository hygiene
 
-Commit only application source, tests, dependency lockfiles, and operating instructions. Do not commit API keys, passwords, database credentials, SSH files, generated media, logs, AI design documents, or local agent configuration. `.env.example` contains placeholders only.
+Commit only application source, tests, dependency lockfiles, operating instructions, and reviewed product screenshots. Do not commit API keys, passwords, database credentials, SSH files, generated media, logs, AI design documents, or local agent configuration. `.env.example` contains placeholders only.
 
 ## References and licenses
 

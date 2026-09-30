@@ -1,6 +1,8 @@
 export function mediaResponse(data: Buffer, type: string, range?: string) {
   const headers = {
-    "Content-Type": type,
+    // MediaRecorder may report codec hints that do not match the final stream
+    // (e.g. AVC level 1 for a level 5 recording). Let the container identify it.
+    "Content-Type": type.split(";")[0]!.trim().toLowerCase(),
     "Cache-Control": "private, no-store",
     "Accept-Ranges": "bytes",
     "X-Content-Type-Options": "nosniff",
