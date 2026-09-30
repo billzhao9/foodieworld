@@ -3027,3 +3027,24 @@ html, body { overscroll-behavior-y: none; }
 .addition-queue li > span { flex: 1; overflow-wrap: anywhere; }
 .addition-queue small { color: #f7d98c; }
 .addition-queue button { min-width: 48px; min-height: 48px; background: transparent; color: #e9cfe7; }
+
+/* Keep the one live video mounted while the mobile pantry scrolls below it.
+   display: contents lets its sticky boundary span both cooking and pantry rows. */
+@media (max-width: 760px) {
+  .lab-layout > .cooking-area { display: contents; }
+  .lab-layout .video-stage {
+    position: sticky;
+    top: calc(76px + env(safe-area-inset-top, 0px));
+    z-index: 15;
+    box-shadow: 0 12px 0 0 #1e1433, 0 18px 24px #130d2399;
+    max-height: 36svh;
+    width: 100%;
+  }
+  .cooking-details { min-width: 0; }
+  .lab-layout .pantry-grid,
+  .lab-layout .animal-grid {
+    max-height: none;
+    overflow: visible;
+  }
+  .lab-layout .pantry-panel { scroll-margin-top: calc(100px + 36svh); }
+}

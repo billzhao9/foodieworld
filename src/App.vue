@@ -821,103 +821,105 @@ async function addCustom() {
                 <VolumeX v-if="muted" :size="19" /><Volume2 v-else :size="19" />
               </button>
             </div>
-            <GenerationProgress :stage="stage" />
-            <div v-if="error" class="error-banner" role="alert">
-              <span>{{ error }}</span>
-            </div>
-            <p
-              v-if="stage === 'live' && audioBlocked"
-              class="recording-note"
-              role="status"
-            >
-              {{ t("audioBlocked") }}
-            </p>
-            <p v-else-if="stage === 'live'" class="recording-note">
-              {{ t("audioShow") }}
-            </p>
-            <div class="stage-actions">
-              <button
-                v-if="stage !== 'live'"
-                class="primary-button start-button"
-                :disabled="busy"
-                @click="start"
+            <div class="cooking-details">
+              <GenerationProgress :stage="stage" />
+              <div v-if="error" class="error-banner" role="alert">
+                <span>{{ error }}</span>
+              </div>
+              <p
+                v-if="stage === 'live' && audioBlocked"
+                class="recording-note"
+                role="status"
               >
-                <LoaderCircle v-if="busy" class="spin" :size="18" /><Flame
-                  v-else
-                  :size="18"
-                />{{
-                  t(busy ? "wait" : stage === "error" ? "retry" : "start")
-                }}</button
-              ><button v-else class="secondary-button" @click="stop">
-                <CirclePause :size="18" />{{ t("stop") }}</button
-              ><button
-                class="save-button"
-                :disabled="!openingUrl || saved || busy"
-                @click="save"
-              >
-                <Check v-if="saved" :size="18" /><Heart
-                  v-else
-                  :size="18"
-                  :fill="saved ? 'currentColor' : 'none'"
-                />{{ t(saved ? "saved" : "save") }}
-              </button>
-            </div>
-            <button
-              v-if="recordingUrl"
-              class="recording-button"
-              @click="downloadRecording"
-            >
-              <Download :size="15" />{{ t("recording") }}
-            </button>
-            <p v-if="!recordingSupported" class="recording-note" role="status">
-              {{ t("recordingUnsupported") }}
-            </p>
-            <div class="pot-notes">
-              <div class="ingredient-list-heading">
-                <span class="notes-label">{{ t("original") }}</span
-                ><button :disabled="busy" @click="ingredientEditor?.open()">
-                  {{ l("编辑食材与厨具", "Edit ingredients & cookware") }}
+                {{ t("audioBlocked") }}
+              </p>
+              <p v-else-if="stage === 'live'" class="recording-note">
+                {{ t("audioShow") }}
+              </p>
+              <div class="stage-actions">
+                <button
+                  v-if="stage !== 'live'"
+                  class="primary-button start-button"
+                  :disabled="busy"
+                  @click="start"
+                >
+                  <LoaderCircle v-if="busy" class="spin" :size="18" /><Flame
+                    v-else
+                    :size="18"
+                  />{{
+                    t(busy ? "wait" : stage === "error" ? "retry" : "start")
+                  }}</button
+                ><button v-else class="secondary-button" @click="stop">
+                  <CirclePause :size="18" />{{ t("stop") }}</button
+                ><button
+                  class="save-button"
+                  :disabled="!openingUrl || saved || busy"
+                  @click="save"
+                >
+                  <Check v-if="saved" :size="18" /><Heart
+                    v-else
+                    :size="18"
+                    :fill="saved ? 'currentColor' : 'none'"
+                  />{{ t(saved ? "saved" : "save") }}
                 </button>
               </div>
-              <div
-                class="ingredient-chips base-ingredient-chips"
-                :class="{ expanded: labIngredientsExpanded }"
-                id="lab-base-ingredients"
-              >
-                <span v-for="id in shownLabIngredients" :key="id">{{
-                  ingredientName(id)
-                }}</span>
-              </div>
               <button
-                v-if="selected.ingredients.length > 6"
-                class="lab-ingredients-toggle"
-                :aria-expanded="labIngredientsExpanded"
-                aria-controls="lab-base-ingredients"
-                @click="labIngredientsExpanded = !labIngredientsExpanded"
+                v-if="recordingUrl"
+                class="recording-button"
+                @click="downloadRecording"
               >
-                <ChevronUp
-                  v-if="labIngredientsExpanded"
-                  :size="15"
-                /><ChevronDown v-else :size="15" />{{
-                  labIngredientsExpanded
-                    ? t("basketCollapse")
-                    : t("basketExpand").replace(
-                        "{count}",
-                        String(selected.ingredients.length),
-                      )
-                }}
+                <Download :size="15" />{{ t("recording") }}
               </button>
-              <template v-if="additions.length"
-                ><span class="notes-label additions-label"
-                  ><Sparkles :size="12" />{{ t("added") }}</span
+              <p v-if="!recordingSupported" class="recording-note" role="status">
+                {{ t("recordingUnsupported") }}
+              </p>
+              <div class="pot-notes">
+                <div class="ingredient-list-heading">
+                  <span class="notes-label">{{ t("original") }}</span
+                  ><button :disabled="busy" @click="ingredientEditor?.open()">
+                    {{ l("编辑食材与厨具", "Edit ingredients & cookware") }}
+                  </button>
+                </div>
+                <div
+                  class="ingredient-chips base-ingredient-chips"
+                  :class="{ expanded: labIngredientsExpanded }"
+                  id="lab-base-ingredients"
                 >
-                <div class="ingredient-chips added-chips">
-                  <span v-for="(a, i) in additions" :key="i">{{
-                    translateAddition(a)
+                  <span v-for="id in shownLabIngredients" :key="id">{{
+                    ingredientName(id)
                   }}</span>
-                </div></template
-              >
-              <AnimalRoster :ids="visitingAnimals" />
+                </div>
+                <button
+                  v-if="selected.ingredients.length > 6"
+                  class="lab-ingredients-toggle"
+                  :aria-expanded="labIngredientsExpanded"
+                  aria-controls="lab-base-ingredients"
+                  @click="labIngredientsExpanded = !labIngredientsExpanded"
+                >
+                  <ChevronUp
+                    v-if="labIngredientsExpanded"
+                    :size="15"
+                  /><ChevronDown v-else :size="15" />{{
+                    labIngredientsExpanded
+                      ? t("basketCollapse")
+                      : t("basketExpand").replace(
+                          "{count}",
+                          String(selected.ingredients.length),
+                        )
+                  }}
+                </button>
+                <template v-if="additions.length"
+                  ><span class="notes-label additions-label"
+                    ><Sparkles :size="12" />{{ t("added") }}</span
+                  >
+                  <div class="ingredient-chips added-chips">
+                    <span v-for="(a, i) in additions" :key="i">{{
+                      translateAddition(a)
+                    }}</span>
+                  </div></template
+                >
+                <AnimalRoster :ids="visitingAnimals" />
+              </div>
             </div>
           </section>
           <section class="pantry-panel">
