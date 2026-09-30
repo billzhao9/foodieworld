@@ -608,3 +608,28 @@ describe("opening narration errors", () => {
     await player.close();
   });
 });
+
+it("waits for final video data when the browser becomes inactive before dispatching stop", async () => {
+  const video = new Video();
+  const player = await connectLive(args(video));
+  sdk.instances[0].emit(
+    "trackReceived",
+    "main_video",
+    new Track("video", "v-final"),
+  );
+  const recorder = Recorder.instances[0];
+  recorder.state = "inactive";
+  const closing = player.close();
+  let resolved = false;
+  void closing.then(() => {
+    resolved = true;
+  });
+  await Promise.resolve();
+  expect(resolved).toBe(false);
+  recorder.ondataavailable?.({
+    data: new Blob(["final-video"], { type: "video/mp4" }),
+  });
+  recorder.dispatchEvent(new Event("stop"));
+  expect(await (await closing)?.text()).toBe("final-video");
+  expect(recorder.stop).not.toHaveBeenCalled();
+});

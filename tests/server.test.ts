@@ -654,7 +654,15 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
           headers: { cookie },
         })
       ).status,
-    ).toBe(404);
-    expect((await second.request(`/api/shared/${token}`)).status).toBe(404);
+    ).toBe(200);
+    const imageOnly = await second.request(`/api/shared/${token}`);
+    expect(imageOnly.status).toBe(200);
+    expect((await imageOnly.json()).hasVideo).toBe(false);
+    expect((await second.request(`/api/shared/${token}/cover`)).status).toBe(
+      200,
+    );
+    expect((await second.request(`/api/shared/${token}/video`)).status).toBe(
+      404,
+    );
   });
 });

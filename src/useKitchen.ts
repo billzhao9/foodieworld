@@ -122,7 +122,15 @@ const copy = {
   ],
   adding: ["正在酝酿下一次变化…", "Preparing the next transformation…"],
   saving: ["正在保存作品…", "Saving your creation…"],
-  saved: ["作品已保存到共享作品集。", "Saved to the shared collection."],
+  saved: ["作品已保存到画廊。", "Saved to the gallery."],
+  RECORDING_MISSING: [
+    "直播已结束，但浏览器未交付录像。当前仅有图片，未保存视频；请勿把图片收藏当作录像。",
+    "The live stream ended, but the browser did not return a recording. Only the image is available; no video was saved.",
+  ],
+  SAVE_FAILED: [
+    "自动保存未完成，录像仍在本页，请点保存重试后再离开。",
+    "Saving failed. Your recording is still on this page; retry saving before leaving.",
+  ],
   replay: [
     "这是收藏的作品；可以用原食材开始新一轮。",
     "A saved creation. Start a new spell with its original ingredients.",
@@ -242,10 +250,12 @@ export function useKitchen() {
     image: Blob | null = null,
     cover: Blob | null = null,
     recording: Blob | null = null,
+    hadPlayback = false,
     generation = 0,
     timer: ReturnType<typeof setInterval> | undefined,
     heartbeat: ReturnType<typeof setInterval> | undefined,
     stopTask: Promise<void> | null = null,
+    saveTask: Promise<void> | null = null,
     saveId = randomId();
   let pendingAudio: AudioContext | undefined;
   let latestAudio: { effectsPrompt?: string } = {};
@@ -425,6 +435,7 @@ export function useKitchen() {
     image = null;
     cover = null;
     recording = null;
+    hadPlayback = false;
     saved.value = false;
     errorCode.value = "";
     statusCode.value = "";
@@ -456,6 +467,25 @@ export function useKitchen() {
     };
     page.value = "lab";
   }
+  async function editIngredients(
+    names: string[],
+    cookware?: z.infer<typeof cookwareSchema>,
+  ) {
+    if (
+      !names.length ||
+      names.length > MAX_BASE_INGREDIENTS ||
+      ["planning", "imaging", "connecting"].includes(stage.value)
+    )
+      return false;
+    await stop();
+    if (recording?.size && !saved.value) {
+      await persistCreation();
+      if (!saved.value) return false;
+    }
+    selectedCookware.value = cookware;
+    selectIngredients(names);
+    return true;
+  }
   function selectDish(dish: Dish) {
     selectIngredients(dish.ingredients);
   }
@@ -465,6 +495,11 @@ export function useKitchen() {
       ["planning", "imaging", "connecting", "live"].includes(stage.value)
     )
       return;
+    if (stopTask) await stopTask;
+    if (recording?.size && !saved.value) {
+      await persistCreation();
+      if (!saved.value) return;
+    }
     if (stage.value === "stopped") {
       const names = [...baseIngredients.value];
       selectedCookware.value = activeCookware.value;
@@ -481,6 +516,7 @@ export function useKitchen() {
     errorCode.value = "";
     statusCode.value = "";
     recording = null;
+    hadPlayback = false;
     saved.value = false;
     try {
       // Persist before the first potentially paid call, including a request
@@ -572,7 +608,10 @@ export function useKitchen() {
           if (run === generation) void stop();
         },
         onPlaying: () => {
-          if (run === generation) stage.value = "live";
+          if (run === generation) {
+            hadPlayback = true;
+            stage.value = "live";
+          }
         },
       });
       if (run !== generation) {
@@ -691,6 +730,9 @@ export function useKitchen() {
       }
       if (stage.value !== "idle") stage.value = "stopped";
       adding.value = false;
+      if (recording?.size && !saved.value) await persistCreation();
+      else if (hadPlayback && !recording?.size)
+        errorCode.value = "RECORDING_MISSING";
     })().finally(() => {
       stopTask = null;
     });
@@ -698,6 +740,10 @@ export function useKitchen() {
   }
   async function back() {
     await stop();
+    if (recording?.size && !saved.value) {
+      await persistCreation();
+      if (!saved.value) return;
+    }
     page.value = "catalog";
     await refresh();
   }
@@ -766,33 +812,54 @@ export function useKitchen() {
   async function save() {
     if (!image || !opening.value || saved.value) return;
     if (stage.value === "live" || stage.value === "connecting") await stop();
-    statusCode.value = "saving";
-    try {
-      await saveCreation(
-        {
-          id: saveId,
-          dishId: "custom",
-          baseIngredients: [...baseIngredients.value],
-          cookware: activeCookware.value,
-          title: opening.value.title,
-          titleEn: opening.value.titleEn,
-          description: opening.value.description,
-          descriptionEn: opening.value.descriptionEn,
-          ingredients: [...additions.value],
-          animals: [...animals.value],
-          createdAt: Date.now(),
-        },
-        image,
-        recording,
-        cover,
-      );
-      saved.value = true;
-      statusCode.value = "saved";
-      await refresh();
-    } catch (e) {
-      failure(e);
-      statusCode.value = "";
+    if (hadPlayback && !recording?.size) {
+      errorCode.value = "RECORDING_MISSING";
+      return;
     }
+    await persistCreation();
+  }
+  async function persistCreation() {
+    if (saveTask) return saveTask;
+    if (!image || !opening.value || saved.value) return;
+    const id = saveId;
+    const details = opening.value;
+    statusCode.value = "saving";
+    saveTask = (async () => {
+      try {
+        await saveCreation(
+          {
+            id: saveId,
+            dishId: "custom",
+            baseIngredients: [...baseIngredients.value],
+            cookware: activeCookware.value,
+            title: details.title,
+            titleEn: details.titleEn,
+            description: details.description,
+            descriptionEn: details.descriptionEn,
+            ingredients: [...additions.value],
+            animals: [...animals.value],
+            createdAt: Date.now(),
+          },
+          image,
+          recording,
+          cover,
+        );
+        if (id === saveId) {
+          saved.value = true;
+          statusCode.value = "saved";
+          if (errorCode.value === "SAVE_FAILED") errorCode.value = "";
+        }
+        await refresh();
+      } catch {
+        if (id === saveId) {
+          errorCode.value = "SAVE_FAILED";
+          statusCode.value = "";
+        }
+      }
+    })().finally(() => {
+      saveTask = null;
+    });
+    return saveTask;
   }
   async function openFavorite(item: SavedCreation) {
     selectedCookware.value = item.cookware;
@@ -902,6 +969,7 @@ export function useKitchen() {
     logout,
     selectDish,
     selectIngredients,
+    editIngredients,
     start,
     stop,
     back,

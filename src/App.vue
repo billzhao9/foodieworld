@@ -35,6 +35,7 @@ import {
 } from "lucide-vue-next";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { ingredients, type IngredientCategory } from "../shared/catalog";
+import IngredientEditor from "./components/IngredientEditor.vue";
 import IngredientCategories from "./components/IngredientCategories.vue";
 import { locale, t, localized as l } from "./i18n";
 import { useKitchen } from "./useKitchen";
@@ -73,6 +74,7 @@ const {
   login,
   logout,
   selectIngredients,
+  editIngredients,
   start,
   stop,
   back,
@@ -84,6 +86,7 @@ const {
   openFavorite,
   downloadRecording,
 } = useKitchen();
+const ingredientEditor = ref<InstanceType<typeof IngredientEditor>>();
 const sharedToken = new URLSearchParams(window.location.search).get("share");
 const collectionMode = ref<"gallery" | "all">("gallery");
 const galleryCount = computed(
@@ -672,6 +675,14 @@ async function addCustom() {
         </div>
       </main>
       <main v-else-if="selected" class="lab-page content-width">
+        <IngredientEditor
+          ref="ingredientEditor"
+          :names="selected.ingredients"
+          :cookware="activeCookware"
+          :has-creation="!!openingUrl"
+          :error="error"
+          :apply="editIngredients"
+        />
         <button class="back-button" @click="back">
           <ArrowLeft :size="16" />{{ t("back") }}
         </button>
@@ -708,8 +719,8 @@ async function addCustom() {
           <p>
             {{
               l(
-                "本轮固定；返回食材篮后可为下一锅更换。",
-                "Fixed for this creation. Choose another in the basket for your next dish.",
+                "可在下方食材列表点编辑，为下一锅更换。",
+                "Use Edit below the video to change ingredients and cookware for the next dish.",
               )
             }}
           </p>
@@ -837,7 +848,12 @@ async function addCustom() {
               {{ t("recordingUnsupported") }}
             </p>
             <div class="pot-notes">
-              <span class="notes-label">{{ t("original") }}</span>
+              <div class="ingredient-list-heading">
+                <span class="notes-label">{{ t("original") }}</span
+                ><button :disabled="busy" @click="ingredientEditor?.open()">
+                  {{ l("编辑食材与厨具", "Edit ingredients & cookware") }}
+                </button>
+              </div>
               <div
                 class="ingredient-chips base-ingredient-chips"
                 :class="{ expanded: labIngredientsExpanded }"

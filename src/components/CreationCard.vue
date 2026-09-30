@@ -37,7 +37,6 @@ defineEmits<{ open: [item: SavedCreation] }>();
       <button class="card-link creation-open" @click="$emit('open', item)">
         {{ t("openCreation") }}<ArrowRight :size="15" /></button
       ><ShareCreation
-        v-if="item.hasVideo"
         :creation-id="item.id"
         :title="l(item.title, item.titleEn || item.title)"
       />

@@ -137,7 +137,7 @@ export function createApp(
   app.get("/api/shared/:token", async (c) => {
     const token = shareToken.parse(c.req.param("token"));
     const r = await db.pool.query(
-      "SELECT meta FROM fw_creations WHERE share_token=$1 AND video IS NOT NULL",
+      "SELECT meta, video IS NOT NULL AS has_video FROM fw_creations WHERE share_token=$1",
       [token],
     );
     if (!r.rows[0]) throw new ApiError("NOT_FOUND", 404);
@@ -145,7 +145,7 @@ export function createApp(
     return c.json({
       ...metaSchema.parse(r.rows[0].meta),
       imageUrl: `/api/shared/${token}/cover`,
-      hasVideo: true,
+      hasVideo: r.rows[0].has_video === true,
     });
   });
   app.get("/api/shared/:token/:media", async (c) => {
@@ -154,7 +154,7 @@ export function createApp(
       .enum(["image", "video", "cover"])
       .parse(c.req.param("media"));
     const r = await db.pool.query(
-      `SELECT ${media === "cover" ? "COALESCE(cover,image)" : media} AS data,${media === "cover" ? "COALESCE(cover_type,image_type)" : `${media}_type`} AS type FROM fw_creations WHERE share_token=$1 AND video IS NOT NULL`,
+      `SELECT ${media === "cover" ? "COALESCE(cover,image)" : media} AS data,${media === "cover" ? "COALESCE(cover_type,image_type)" : `${media}_type`} AS type FROM fw_creations WHERE share_token=$1`,
       [token],
     );
     const row = r.rows[0];
@@ -377,7 +377,7 @@ export function createApp(
   app.post("/api/creations/:id/share", async (c) => {
     const id = uuid.parse(c.req.param("id"));
     const r = await db.pool.query(
-      "UPDATE fw_creations SET share_token=COALESCE(share_token,$2) WHERE id=$1 AND video IS NOT NULL RETURNING share_token",
+      "UPDATE fw_creations SET share_token=COALESCE(share_token,$2) WHERE id=$1 RETURNING share_token",
       [id, randomBytes(32).toString("base64url")],
     );
     if (!r.rows[0]) throw new ApiError("NOT_FOUND", 404);

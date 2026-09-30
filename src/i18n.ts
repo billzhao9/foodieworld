@@ -24,8 +24,8 @@ const copy: Record<string, [string, string]> = {
     "Your first curious creation is still brewing",
   ],
   emptyGalleryBody: [
-    "完成烹饪并收藏视频，让朋友看看你的脑洞。",
-    "Cook, record and save your creation. Then share a little surprise with friends.",
+    "录像结束后会自动存入画廊，让朋友看看你的脑洞。",
+    "Recordings are saved here automatically when cooking ends. Share a little surprise with friends.",
   ],
   recordedCreation: ["料理实录", "Kitchen recording"],
   shareFriends: ["分享给朋友", "Share with friends"],

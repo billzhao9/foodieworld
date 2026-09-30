@@ -99,6 +99,7 @@ export async function connectLive(args: {
   const output = new MediaStream();
   let recorder: MediaRecorder | undefined;
   let recordingError: Error | undefined;
+  let recordingStopped: Promise<void> | undefined;
   const chunks: Blob[] = [];
   let closed = false;
   let complete = false;
@@ -282,6 +283,9 @@ export async function connectLive(args: {
       recorder = new MediaRecorder(stream, {
         mimeType: formats.find((type) => MediaRecorder.isTypeSupported(type)),
       });
+      recordingStopped = new Promise<void>((resolve) => {
+        recorder!.addEventListener("stop", () => resolve(), { once: true });
+      });
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunks.push(event.data);
       };
@@ -289,7 +293,13 @@ export async function connectLive(args: {
         recordingError = new Error("RECORDING_FAILED");
         fail(recordingError);
       };
-      recorder.start(1000);
+      try {
+        recorder.start(1000);
+      } catch (error) {
+        recorder = undefined;
+        recordingStopped = undefined;
+        throw error;
+      }
     }
   }
   const onPlaying = () => {
@@ -336,23 +346,14 @@ export async function connectLive(args: {
       args.video.cancelVideoFrameCallback(firstFrame);
     closePromise = (async () => {
       try {
-        if (recorder && recorder.state !== "inactive") {
-          const current = recorder;
-          await bounded(
-            new Promise<void>((resolve, reject) => {
-              current.addEventListener("stop", () => resolve(), { once: true });
-              current.addEventListener(
-                "error",
-                () => reject(new Error("RECORDING_FAILED")),
-                { once: true },
-              );
-              current.stop();
-            }),
-            4000,
-            "RECORDING_STOP_TIMEOUT",
-          );
+        if (recorder) {
+          // A remote track ending can set state=inactive before the browser
+          // dispatches its final dataavailable and stop events (notably Safari).
+          // Always await the listener installed at recorder creation.
+          if (recorder.state !== "inactive") recorder.stop();
+          await bounded(recordingStopped!, 15000, "RECORDING_STOP_TIMEOUT");
         }
-        if (recordingError) throw recordingError;
+        if (recordingError && !chunks.length) throw recordingError;
         return chunks.length
           ? new Blob(chunks, { type: recorder?.mimeType || chunks[0].type })
           : null;
