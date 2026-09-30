@@ -3048,3 +3048,8 @@ html, body { overscroll-behavior-y: none; }
   }
   .lab-layout .pantry-panel { scroll-margin-top: calc(100px + 36svh); }
 }
+
+.gallery-sync { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+.gallery-sync p { color: #cdbbdf; font-size: 12px; line-height: 1.5; margin: 0; }
+.gallery-sync button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 48px; flex-shrink: 0; padding: 10px 14px; border-radius: 14px; color: #ffe095; background: #3b294c; }
+.gallery-sync button:disabled { opacity: .65; }

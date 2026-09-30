@@ -585,9 +585,12 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
         })
       ).status,
     ).toBe(200);
+    const visitorCookie = await auth(second);
+    expect(visitorCookie).not.toBe(cookie);
     const list = await (
-      await second.request("/api/creations", { headers: { cookie } })
+      await second.request("/api/creations", { headers: { cookie: visitorCookie } })
     ).json();
+    expect(list[0].id).toBe(id);
     expect(list[0].hasVideo).toBe(true);
     expect(list[0].animals).toEqual(["cat"]);
     const thumbnail = await second.request(list[0].imageUrl, {

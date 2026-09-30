@@ -64,7 +64,7 @@ function isCreation(value: unknown): value is SavedCreation {
 }
 
 export async function listCreations(): Promise<SavedCreation[]> {
-  const body: unknown = await (await request("/api/creations")).json();
+  const body: unknown = await (await request("/api/creations", { cache: "no-store" })).json();
   if (!Array.isArray(body) || !body.every(isCreation))
     throw new Error("STORAGE_INVALID_RESPONSE");
   return body;

@@ -71,6 +71,9 @@ const {
   audioBlocked,
   saved,
   favorites,
+  galleryLoading,
+  galleryError,
+  refreshGallery,
   videoElement,
   recordingSupported,
   recordingUrl,
@@ -414,6 +417,15 @@ async function addCustom() {
             >
               <Heart :size="16" />{{ t("allSaved")
               }}<span>{{ favorites.length }}</span>
+            </button>
+          </div>
+          <div v-if="tab === 'favorites'" class="gallery-sync">
+            <p role="status">{{ galleryError
+              ? l('暂时无法更新，已保留现有作品，请重试。', 'Could not update. Your current collection is still here; please retry.')
+              : l('共享画廊 · 看看大家的料理脑洞', 'Shared gallery · Explore everyone’s kitchen creations') }}</p>
+            <button type="button" :disabled="galleryLoading" @click="refreshGallery">
+              <LoaderCircle v-if="galleryLoading" class="spin" :size="16" />
+              {{ galleryLoading ? l('更新中…', 'Refreshing…') : l('刷新作品', 'Refresh') }}
             </button>
           </div>
           <label v-if="tab === 'all'" class="search-field"

@@ -416,13 +416,31 @@ export function useKitchen() {
       }
     }
   }
-  async function refresh() {
-    try {
-      favorites.value = await listCreations();
-    } catch (e) {
-      failure(e);
-    }
+  const galleryLoading = ref(false);
+  const galleryError = ref(false);
+  let refreshTask: Promise<void> | null = null;
+  function refresh(): Promise<void> {
+    if (refreshTask) return refreshTask;
+    galleryLoading.value = true;
+    galleryError.value = false;
+    refreshTask = (async () => {
+      try {
+        favorites.value = await listCreations();
+      } catch {
+        // Keep the last successful collection and report errors in the gallery.
+        galleryError.value = true;
+      } finally {
+        galleryLoading.value = false;
+        refreshTask = null;
+      }
+    })();
+    return refreshTask;
   }
+  const galleryVisible = () =>
+    authenticated.value && page.value === "catalog" && tab.value === "favorites";
+  watch([page, tab], () => {
+    if (galleryVisible()) void refresh();
+  });
   async function login(password: string) {
     authLoading.value = true;
     passwordError.value = "";
@@ -1013,7 +1031,9 @@ export function useKitchen() {
   }
   const hidden = () => {
     if (document.hidden) leave();
+    else if (galleryVisible()) void refresh();
   };
+  let galleryPoll: ReturnType<typeof setInterval> | undefined;
   onMounted(async () => {
     if (new URL(window.location.href).searchParams.has("share")) return;
     recordingSupported.value = canRecord();
@@ -1027,10 +1047,14 @@ export function useKitchen() {
     } finally {
       authLoading.value = false;
     }
+    galleryPoll = setInterval(() => {
+      if (!document.hidden && galleryVisible()) void refresh();
+    }, 30_000);
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", leave);
   });
   onUnmounted(() => {
+    clearInterval(galleryPoll);
     document.removeEventListener("visibilitychange", hidden);
     window.removeEventListener("pagehide", leave);
     leave();
@@ -1060,6 +1084,9 @@ export function useKitchen() {
     audioBlocked,
     saved,
     favorites,
+    galleryLoading,
+    galleryError,
+    refreshGallery: refresh,
     videoElement,
     recordingSupported,
     recordingUrl,

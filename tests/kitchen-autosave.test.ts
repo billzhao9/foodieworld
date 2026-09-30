@@ -20,7 +20,7 @@ vi.mock("../src/lib/storage", () => ({
 }));
 import { useKitchen } from "../src/useKitchen";
 import { connectLive } from "../src/lib/live";
-import { saveCreation } from "../src/lib/storage";
+import { listCreations, saveCreation } from "../src/lib/storage";
 const clip = new Blob(["video"], { type: "video/mp4" });
 let callbacks: Parameters<typeof connectLive>[0];
 beforeEach(() => {
@@ -202,4 +202,26 @@ it("supports removing a waiting action and reports queue capacity instead of sil
   expect(k.additionQueue.value[1].status).toBe("cancelled");
   await vi.advanceTimersByTimeAsync(0);
   await k.stop();
+});
+
+
+it("refreshes shared creations when entering the gallery and deduplicates requests", async () => {
+  const { nextTick } = await import("vue");
+  const kitchen = useKitchen();
+  kitchen.authenticated.value = true;
+  let resolve!: (items: any[]) => void;
+  vi.mocked(listCreations).mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+  kitchen.tab.value = "favorites";
+  await nextTick();
+  expect(listCreations).toHaveBeenCalledTimes(1);
+  const manual = kitchen.refreshGallery();
+  expect(listCreations).toHaveBeenCalledTimes(1);
+  resolve([{ id: "another-visitor", hasVideo: true }]);
+  await manual;
+  expect(kitchen.favorites.value[0].id).toBe("another-visitor");
+  expect(kitchen.galleryLoading.value).toBe(false);
+  vi.mocked(listCreations).mockRejectedValueOnce(new Error("offline"));
+  await kitchen.refreshGallery();
+  expect(kitchen.galleryError.value).toBe(true);
+  expect(kitchen.favorites.value[0].id).toBe("another-visitor");
 });
