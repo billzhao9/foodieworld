@@ -3,6 +3,11 @@ export const locale = ref<"zh" | "en">(
   localStorage.getItem("foodie-locale") === "en" ? "en" : "zh",
 );
 const copy: Record<string, [string, string]> = {
+  audioBlocked: [
+    "点一下声音按钮，让小动物和吐槽主持人开麦。",
+    "Tap sound to hear the animals and comedy host.",
+  ],
+  audioShow: ["动物音效 · 中文吐槽秀", "Animal sounds · English comedy show"],
   categoryAll: ["全部", "All"],
   categoryVegetables: ["蔬菜菌菇", "Vegetables"],
   categoryProtein: ["肉类海鲜", "Meat & seafood"],
@@ -94,6 +99,25 @@ const copy: Record<string, [string, string]> = {
   ],
   animalArriving: ["小客人正在赶来…", "A little visitor is on the way…"],
   animalCast: ["厨房小客人", "Kitchen guests"],
+  progressTitle: ["这一锅正在酝酿", "Your creation is brewing"],
+  progressEstimate: ["估算进度", "Estimated progress"],
+  progressPlanning: ["构思美味", "Dream it up"],
+  progressImaging: ["准备开场", "Set the scene"],
+  progressConnecting: ["点亮直播", "Bring it to life"],
+  progressEta: ["预计还需约", "Estimated time left"],
+  progressElapsed: ["已等待", "Waiting"],
+  progressSlower: [
+    "比平时慢一些，魔法仍在继续",
+    "A little slower than usual. The magic is still unfolding.",
+  ],
+  progressHistory: [
+    "参考近期成功记录，时间仅供参考",
+    "Based on recent successes; timing may vary",
+  ],
+  progressDefault: [
+    "通常约1–2分钟，实际时间可能变化",
+    "Usually about 1–2 minutes; timing may vary",
+  ],
   basketHint: [
     "挑选 1–6 种食材，交给魔法来组合",
     "Choose 1–6 ingredients. Let magic do the mixing.",

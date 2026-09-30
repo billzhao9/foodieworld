@@ -45,6 +45,11 @@ const opening = {
   descriptionEn: "Warm rice",
   imagePrompt: "soft 3d rice image on a plate",
   videoPrompt: "The rice gently steams on a plate.",
+  effectsPrompt: "",
+  narrationZh: "",
+  narrationEn: "",
+  audioPromptZh: "",
+  audioPromptEn: "",
 };
 describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
   beforeAll(async () => {
@@ -63,7 +68,9 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
     }
   });
   beforeEach(async () => {
-    await db.pool.query("TRUNCATE fw_records,fw_live,fw_creations,fw_logins");
+    await db.pool.query(
+      "TRUNCATE fw_records,fw_live,fw_creations,fw_logins,fw_narrations",
+    );
   });
   async function auth(app: ReturnType<typeof createApp>["app"]) {
     const r = await app.request("/api/auth/login", {
@@ -74,6 +81,52 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
     expect(r.status).toBe(200);
     return r.headers.get("set-cookie")!.split(";")[0];
   }
+  it("guards narration ownership, selects language and caches actual audio", async () => {
+    const synthesize = vi.fn(async (_text: string, _language: "zh" | "en") =>
+      Buffer.from("RIFF-test-WAVE"),
+    );
+    const { app } = createApp(config, db, vi.fn(), synthesize);
+    const cookie = await auth(app),
+      otherCookie = await auth(app),
+      id = randomUUID();
+    await app.request("/api/crafts", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ id, ingredients: ["米饭"] }),
+    });
+    const line = {
+      ...opening,
+      narrationZh: "评委先别跑，这锅的惊喜还在后头！",
+      narrationEn: "Judges, stay seated. This pan is only warming up!",
+    };
+    await db.pool.query(
+      "UPDATE fw_records SET data=jsonb_set(data,'{opening}',$1::jsonb) WHERE id=$2",
+      [JSON.stringify(line), id],
+    );
+    const request = (language: string, sessionCookie?: string, extra = {}) =>
+      app.request(`/api/crafts/${id}/narration`, {
+        method: "POST",
+        headers: sessionCookie ? { cookie: sessionCookie } : {},
+        body: JSON.stringify({ language, ...extra }),
+      });
+    expect((await request("zh")).status).toBe(401);
+    expect((await request("zh", otherCookie)).status).toBe(404);
+    expect((await request("fr", cookie)).status).toBe(400);
+    expect(
+      (await request("zh", cookie, { text: "arbitrary caller text" })).status,
+    ).toBe(400);
+    expect(synthesize).not.toHaveBeenCalled();
+    const first = await request("zh", cookie);
+    expect(first.status).toBe(200);
+    expect(first.headers.get("content-type")).toBe("audio/wav");
+    expect(await first.text()).toBe("RIFF-test-WAVE");
+    expect((await request("zh", cookie)).status).toBe(200);
+    expect(synthesize).toHaveBeenCalledTimes(1);
+    expect(synthesize).toHaveBeenLastCalledWith(line.narrationZh, "zh");
+    expect((await request("en", cookie)).status).toBe(200);
+    expect(synthesize).toHaveBeenLastCalledWith(line.narrationEn, "en");
+    expect(synthesize).toHaveBeenCalledTimes(2);
+  });
   it("guards generation/media and rejects wrong passwords and cross-origin mutation", async () => {
     const { app } = createApp(config, db, vi.fn());
     expect((await app.request("/api/creations")).status).toBe(401);

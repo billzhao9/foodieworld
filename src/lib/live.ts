@@ -2,7 +2,11 @@ import { Reactor } from "@reactor-team/js-sdk";
 import type { LiveConnection } from "../../shared/contracts";
 
 export interface LivePlayer {
-  update(prompt: string): Promise<void>;
+  update(prompt: string, audioPrompt: string): Promise<void>;
+  updateAudio(prompt: string): Promise<void>;
+  setMuted(muted: boolean): void;
+  speak(audio: ArrayBuffer): Promise<void>;
+  stopSpeech(): void;
   resumeAudio(): Promise<void>;
   close(): Promise<Blob | null>;
 }
@@ -40,26 +44,58 @@ function bounded<T>(
   });
 }
 
+// Call synchronously from the start button, before image generation awaits.
+// The resumed context is transferred to connectLive, which owns its cleanup.
+export function prepareLiveAudio(): AudioContext | undefined {
+  if (typeof AudioContext === "undefined") return undefined;
+  let context: AudioContext | undefined;
+  try {
+    context = new AudioContext();
+    void context.resume().catch(() => {});
+    return context;
+  } catch {
+    if (context) void context.close().catch(() => {});
+    return undefined;
+  }
+}
+
 export async function connectLive(args: {
   connection: LiveConnection;
   image: Blob;
   prompt: string;
+  audioPrompt: string;
+  audioContext?: AudioContext;
+  narration?: ArrayBuffer;
+  onNarrationError?: (error: Error) => void;
+  muted: boolean;
+  onAudioBlocked: () => void;
   video: HTMLVideoElement;
   onError: (error: Error) => void;
   onComplete: () => void;
   onPlaying: () => void;
 }): Promise<LivePlayer> {
-  const client = new Reactor({
-    modelName: args.connection.modelSlug,
-    apiUrl: args.connection.apiBase,
-    readyTimeoutMs: 20_000,
-    controlRequestTimeoutMs: 10_000,
-    maxSessionAttempts: 20,
-    // SDP negotiation polls the same session; one poll expires before the
-    // remote answer can arrive. This does not create additional paid sessions.
-    maxSdpAttempts: 20,
-    logLevel: "off",
-  });
+  let client: Reactor;
+  try {
+    client = new Reactor({
+      modelName: args.connection.modelSlug,
+      apiUrl: args.connection.apiBase,
+      readyTimeoutMs: 20_000,
+      controlRequestTimeoutMs: 10_000,
+      maxSessionAttempts: 20,
+      // SDP negotiation polls the same session; one poll expires before the
+      // remote answer can arrive. This does not create additional paid sessions.
+      maxSdpAttempts: 20,
+      logLevel: "off",
+    });
+  } catch (error) {
+    if (args.audioContext)
+      await bounded(
+        args.audioContext.close(),
+        2000,
+        "AUDIO_CLOSE_TIMEOUT",
+      ).catch(() => {});
+    throw error;
+  }
   const output = new MediaStream();
   let recorder: MediaRecorder | undefined;
   let recordingError: Error | undefined;
@@ -68,21 +104,154 @@ export async function connectLive(args: {
   let complete = false;
   let reported = false;
   let closePromise: Promise<Blob | null> | undefined;
-  let audioContext: AudioContext | undefined;
+  let audioContext: AudioContext | undefined = args.audioContext;
+  let listenerGain: GainNode | undefined;
+  let effectsGain: GainNode | undefined;
+  let narrationTimer: ReturnType<typeof setTimeout> | undefined;
+  let openingNarrationScheduled = false;
+  type Speech = {
+    source?: AudioBufferSourceNode;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  };
+  let speech: Speech | undefined;
+  let audioMuted = args.muted;
+  let audioBlockedReported = false;
+  let updates: Promise<void> = Promise.resolve();
   let audioDestination: MediaStreamAudioDestinationNode | undefined;
   const audioSources: MediaStreamAudioSourceNode[] = [];
-  // A stable mixed audio track lets audio arrive after video without changing
-  // the track set of an active MediaRecorder (which browsers forbid).
+  // Listening and recording use independent branches. Muting the listener
+  // must not silence a saved creation or change an active recorder's tracks.
   try {
-    if (recordingSupported() && typeof AudioContext !== "undefined") {
-      audioContext = new AudioContext();
-      audioDestination = audioContext.createMediaStreamDestination();
-      void bounded(audioContext.resume(), 3000, "AUDIO_RESUME_TIMEOUT").catch(
-        () => {},
-      );
+    audioContext ??= prepareLiveAudio();
+    if (audioContext) {
+      listenerGain = audioContext.createGain();
+      listenerGain.gain.value = audioMuted ? 0 : 1;
+      listenerGain.connect(audioContext.destination);
+      effectsGain = audioContext.createGain();
+      effectsGain.gain.value = 1;
+      effectsGain.connect(listenerGain);
+      if (recordingSupported())
+        audioDestination = audioContext.createMediaStreamDestination();
+      if (audioDestination) effectsGain.connect(audioDestination);
     }
   } catch {
+    listenerGain?.disconnect();
+    effectsGain?.disconnect();
+    listenerGain = undefined;
+    effectsGain = undefined;
+    if (audioContext) void audioContext.close().catch(() => {});
     audioContext = undefined;
+    audioDestination = undefined;
+  }
+  // The element is only the picture when Web Audio handles monitoring.
+  args.video.muted = audioContext ? true : audioMuted;
+
+  function audioBlocked() {
+    if (closed || audioMuted) return;
+    setMuted(true);
+    if (audioBlockedReported) return;
+    audioBlockedReported = true;
+    args.onAudioBlocked();
+  }
+
+  function setMuted(muted: boolean) {
+    audioMuted = muted;
+    if (listenerGain) listenerGain.gain.value = muted ? 0 : 1;
+    args.video.muted = audioContext ? true : muted;
+  }
+
+  async function resumeAudio() {
+    if (closed) throw new Error("LIVE_CLOSED");
+    if (audioContext) {
+      try {
+        if (audioContext.state !== "running")
+          await bounded(audioContext.resume(), 3000, "AUDIO_RESUME_TIMEOUT");
+        if (audioContext.state === "running") audioBlockedReported = false;
+        else throw new Error("AUDIO_CONTEXT_SUSPENDED");
+      } catch {
+        audioBlocked();
+        throw new Error("AUDIO_PLAYBACK_BLOCKED");
+      }
+    } else {
+      // Also retry playback here: on browsers without Web Audio, this method
+      // runs inside the sound button's gesture to unlock native media audio.
+      args.video.muted = audioMuted;
+      try {
+        await bounded(args.video.play(), 5000, "AUDIO_PLAYBACK_TIMEOUT");
+        audioBlockedReported = false;
+      } catch {
+        audioBlocked();
+        args.video.muted = true;
+        void args.video.play().catch(() => {});
+        throw new Error("AUDIO_PLAYBACK_BLOCKED");
+      }
+    }
+  }
+
+  function finishSpeech(current: Speech, error?: Error) {
+    if (speech !== current) return;
+    speech = undefined;
+    if (current.source) {
+      current.source.onended = null;
+      current.source.disconnect();
+    }
+    if (effectsGain) effectsGain.gain.value = 1;
+    if (error) current.reject(error);
+    else current.resolve();
+  }
+
+  function stopSpeech() {
+    // An explicit replacement also cancels an opening voice awaiting frames.
+    openingNarrationScheduled = true;
+    clearTimeout(narrationTimer);
+    narrationTimer = undefined;
+    const current = speech;
+    if (!current) return;
+    // Settle before stop: browsers may dispatch ended immediately or later.
+    finishSpeech(current);
+    try {
+      current.source?.stop();
+    } catch {
+      /* A naturally ended source is already stopped. */
+    }
+  }
+
+  function speak(audio: ArrayBuffer): Promise<void> {
+    stopSpeech();
+    if (closed) return Promise.reject(new Error("LIVE_CLOSED"));
+    const context = audioContext;
+    if (!context || !listenerGain || !effectsGain)
+      return Promise.reject(new Error("NARRATION_UNAVAILABLE"));
+    return new Promise<void>((resolve, reject) => {
+      const current: Speech = { resolve, reject };
+      speech = current;
+      void (async () => {
+        // decodeAudioData may detach its input, so preserve reusable TTS bytes.
+        const buffer = await bounded(
+          context.decodeAudioData(audio.slice(0)),
+          10_000,
+          "NARRATION_DECODE_TIMEOUT",
+        );
+        if (closed || speech !== current) return;
+        await resumeAudio();
+        if (closed || speech !== current) return;
+        const source = context.createBufferSource();
+        current.source = source;
+        source.buffer = buffer;
+        // Narration bypasses background ducking and listener mute for recording.
+        source.connect(listenerGain!);
+        if (audioDestination) source.connect(audioDestination);
+        source.onended = () => finishSpeech(current);
+        effectsGain!.gain.value = 0.3;
+        source.start();
+      })().catch((error: unknown) => {
+        finishSpeech(
+          current,
+          error instanceof Error ? error : new Error("NARRATION_FAILED"),
+        );
+      });
+    });
   }
 
   let mediaTimer: ReturnType<typeof setTimeout> | undefined;
@@ -106,6 +275,19 @@ export async function connectLive(args: {
     if (!closed && started && args.video.videoWidth > 0) {
       clearTimeout(mediaTimer);
       args.onPlaying();
+      if (closed) return;
+      if (args.narration && !openingNarrationScheduled) {
+        openingNarrationScheduled = true;
+        narrationTimer = setTimeout(() => {
+          narrationTimer = undefined;
+          void speak(args.narration!).catch((error: unknown) => {
+            const failure =
+              error instanceof Error ? error : new Error("NARRATION_FAILED");
+            diagnostic(failure);
+            args.onNarrationError?.(failure);
+          });
+        }, 800);
+      }
     }
   };
   args.video.addEventListener("playing", onPlaying);
@@ -114,6 +296,7 @@ export async function connectLive(args: {
   async function close(): Promise<Blob | null> {
     if (closePromise) return closePromise;
     closed = true;
+    stopSpeech();
     clearTimeout(mediaTimer);
     args.video.removeEventListener("playing", onPlaying);
     args.video.removeEventListener("loadeddata", onPlaying);
@@ -155,6 +338,9 @@ export async function connectLive(args: {
           client[Symbol.dispose]();
           output.getTracks().forEach((track) => track.stop());
           audioSources.forEach((source) => source.disconnect());
+          listenerGain?.disconnect();
+          effectsGain?.disconnect();
+          audioDestination?.disconnect();
           audioDestination?.stream.getTracks().forEach((track) => track.stop());
           if (audioContext)
             await bounded(
@@ -200,26 +386,30 @@ export async function connectLive(args: {
         .filter((item) => item.kind === track.kind)
         .forEach((item) => output.removeTrack(item));
       output.addTrack(track);
-      if (name === "main_audio" && audioContext && audioDestination) {
-        audioSources.forEach((source) => source.disconnect());
+      if (name === "main_audio" && audioContext && effectsGain) {
+        audioSources.splice(0).forEach((source) => source.disconnect());
         const source = audioContext.createMediaStreamSource(
           new MediaStream([track]),
         );
-        source.connect(audioDestination);
+        source.connect(effectsGain);
         audioSources.push(source);
+        void resumeAudio().catch(() => {});
       }
       if (args.video.srcObject !== output) args.video.srcObject = output;
       // A track can arrive before upload/start, with no frames available yet.
       // The post-start media timer owns the first-frame deadline.
+      args.video.muted = audioContext ? true : audioMuted;
       void args.video.play().catch((error) => {
-        // Mobile autoplay can require the visible native play button.
-        if (
-          !(
-            error instanceof DOMException &&
-            ["NotAllowedError", "AbortError"].includes(error.name)
-          )
-        )
+        if (error instanceof DOMException && error.name === "NotAllowedError") {
+          audioBlocked();
+          // Keep the picture moving while the UI offers a sound-unlock tap.
+          args.video.muted = true;
+          void args.video.play().catch(() => {});
+        } else if (
+          !(error instanceof DOMException && error.name === "AbortError")
+        ) {
           fail(error);
+        }
       });
       if (name === "main_video" && !recorder && recordingSupported()) {
         const stream = new MediaStream([
@@ -255,7 +445,10 @@ export async function connectLive(args: {
       throw new Error("LIVE_COMMAND_FAILED");
     if (
       (name === "set_image" && reply?.type !== "image_accepted") ||
-      (name === "set_prompt" && reply?.type !== "prompt_accepted")
+      (name === "set_prompt" && reply?.type !== "prompt_accepted") ||
+      (name === "set_audio_enabled" &&
+        reply?.type !== "audio_enabled_accepted") ||
+      (name === "set_audio_prompt" && reply?.type !== "audio_prompt_accepted")
     )
       throw new Error("LIVE_COMMAND_UNCONFIRMED");
   }
@@ -277,6 +470,10 @@ export async function connectLive(args: {
     );
     phase = "set_image";
     await command("set_image", { image });
+    phase = "set_audio_enabled";
+    await command("set_audio_enabled", { audio_enabled: true });
+    phase = "set_audio_prompt";
+    await command("set_audio_prompt", { prompt: args.audioPrompt });
     phase = "set_prompt";
     await command("set_prompt", { prompt: args.prompt, passthrough: true });
     phase = "start";
@@ -298,21 +495,34 @@ export async function connectLive(args: {
     await close().catch(() => {});
     throw error;
   }
-  return {
-    async resumeAudio() {
-      if (audioContext?.state === "suspended") await audioContext.resume();
-    },
-    async update(prompt) {
-      try {
-        await command("set_prompt", { prompt, passthrough: true });
-        if (complete) {
-          await command("start");
-          complete = false;
-        }
-      } catch (error) {
+  function enqueueUpdate(action: () => Promise<void>): Promise<void> {
+    const pending = updates
+      .then(async () => {
+        if (closed) throw new Error("LIVE_CLOSED");
+        if (complete) throw new Error("LIVE_COMPLETE");
+        await action();
+      })
+      .catch((error: unknown) => {
         fail(error);
         throw error;
-      }
+      });
+    // A rejected operation must not leave later callers waiting forever.
+    updates = pending.catch(() => {});
+    return pending;
+  }
+  return {
+    resumeAudio,
+    setMuted,
+    speak,
+    stopSpeech,
+    update(prompt, audioPrompt) {
+      return enqueueUpdate(async () => {
+        await command("set_audio_prompt", { prompt: audioPrompt });
+        await command("set_prompt", { prompt, passthrough: true });
+      });
+    },
+    updateAudio(prompt) {
+      return enqueueUpdate(() => command("set_audio_prompt", { prompt }));
     },
     close,
   };

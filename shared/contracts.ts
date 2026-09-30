@@ -1,4 +1,12 @@
 import { z } from "zod";
+const audioPromptFields = {
+  // Defaults preserve previously purchased text receipts and stored crafts.
+  audioPromptZh: z.string().max(1600).default(""),
+  audioPromptEn: z.string().max(1600).default(""),
+  effectsPrompt: z.string().max(1600).default(""),
+  narrationZh: z.string().max(200).default(""),
+  narrationEn: z.string().max(500).default(""),
+};
 export const openingSchema = z.object({
   title: z.string().min(1).max(80),
   titleEn: z.string().min(1).max(120),
@@ -6,6 +14,7 @@ export const openingSchema = z.object({
   description: z.string().min(1).max(240),
   imagePrompt: z.string().min(10).max(4000),
   videoPrompt: z.string().min(10).max(4000),
+  ...audioPromptFields,
 });
 export type Opening = z.infer<typeof openingSchema>;
 export const actionSchema = z.object({
@@ -14,6 +23,7 @@ export const actionSchema = z.object({
   descriptionEn: z.string().min(1).max(300),
   description: z.string().min(1).max(240),
   prompt: z.string().min(5).max(2000),
+  ...audioPromptFields,
 });
 export type AlchemyAction = z.infer<typeof actionSchema>;
 export const connectionSchema = z.object({

@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { locale } from "./i18n";
 import { type Dish, ingredients } from "../shared/catalog";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../shared/contracts";
 import {
   connectLive,
+  prepareLiveAudio,
   recordingSupported as canRecord,
   type LivePlayer,
 } from "./lib/live";
@@ -95,12 +96,16 @@ const copy = {
     "这一步正在处理中，请稍等。",
     "This step is already being prepared.",
   ],
+  NARRATION_UNAVAILABLE: [
+    "主持人配音暂不可用，料理和动物音效仍保留。",
+    "Host narration is unavailable. Cooking and animal sounds are preserved.",
+  ],
   INVALID_ANIMAL: [
     "这位动物嘉宾不在名单里，请重新选择。",
     "Choose an animal from the guest list.",
   ],
   INGREDIENT_LIMIT: [
-    "这一锅已经有很多材料啦，先保存作品吧。",
+    "本轮变化已满，先保存作品吧。",
     "This cauldron is full. Save your creation first.",
   ],
   NETWORK: [
@@ -194,7 +199,8 @@ export function useKitchen() {
     animals = ref<string[]>([]),
     adding = ref(false),
     remaining = ref(60),
-    muted = ref(true),
+    muted = ref(false),
+    audioBlocked = ref(false),
     saved = ref(false),
     favorites = ref<SavedCreation[]>([]),
     videoElement = ref<HTMLVideoElement | null>(null),
@@ -235,6 +241,71 @@ export function useKitchen() {
     heartbeat: ReturnType<typeof setInterval> | undefined,
     stopTask: Promise<void> | null = null,
     saveId = randomId();
+  let pendingAudio: AudioContext | undefined;
+  let latestAudio: { effectsPrompt?: string } = {};
+  let latestActionId: string | undefined;
+  let voiceGeneration = 0;
+  let lastAudioLocale = locale.value;
+  function audioPrompt() {
+    // Old receipts contain unreliable generated speech: never reuse that track prompt.
+    return (
+      latestAudio.effectsPrompt ||
+      "Gentle skillet sizzling, wooden spatula scraping and soft food bubbling; only cooking sound effects, no human voices or music."
+    );
+  }
+  async function loadNarration(
+    actionId: string | undefined,
+    language: "zh" | "en",
+  ): Promise<ArrayBuffer> {
+    const response = await fetch(`/api/crafts/${craftId}/narration`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language, ...(actionId ? { actionId } : {}) }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!response.ok) throw new RequestError("NARRATION_UNAVAILABLE");
+    return response.arrayBuffer();
+  }
+  async function narrateCurrent(delay = 0) {
+    const current = player;
+    if (!current || stage.value !== "live") return;
+    const version = ++voiceGeneration;
+    const language = locale.value;
+    lastAudioLocale = language;
+    current.stopSpeech();
+    try {
+      const [audio] = await Promise.all([
+        loadNarration(latestActionId, language),
+        wait(delay),
+      ]);
+      if (
+        current !== player ||
+        version !== voiceGeneration ||
+        stage.value !== "live"
+      )
+        return;
+      await current.speak(audio);
+    } catch {
+      if (current === player && version === voiceGeneration)
+        errorCode.value = "NARRATION_UNAVAILABLE";
+    }
+  }
+  watch(locale, () => {
+    if (player && stage.value === "live") {
+      voiceGeneration++;
+      player.stopSpeech();
+    }
+  });
+  watch([locale, adding], () => {
+    if (
+      !player ||
+      stage.value !== "live" ||
+      adding.value ||
+      lastAudioLocale === locale.value
+    )
+      return;
+    void narrateCurrent();
+  });
   function randomId(): string {
     return crypto.randomUUID();
   }
@@ -342,6 +413,8 @@ export function useKitchen() {
     opening.value = null;
     additions.value = [];
     animals.value = [];
+    latestActionId = undefined;
+    voiceGeneration++;
     image = null;
     cover = null;
     recording = null;
@@ -388,6 +461,11 @@ export function useKitchen() {
       const names = [...baseIngredients.value];
       selectIngredients(names);
     }
+    // Unlock sound in the click gesture, before image generation awaits.
+    const preparedAudio = prepareLiveAudio();
+    pendingAudio = preparedAudio;
+    let audioTransferred = false;
+    audioBlocked.value = false;
     const run = ++generation;
     const runCraftId = craftId;
     const runIngredients = [...baseIngredients.value];
@@ -424,6 +502,9 @@ export function useKitchen() {
         URL.revokeObjectURL(openingUrl.value);
       openingUrl.value = URL.createObjectURL(image);
       stage.value = "connecting";
+      lastAudioLocale = locale.value;
+      const narration = await loadNarration(undefined, lastAudioLocale);
+      if (run !== generation) return;
       await nextTick();
       const opened = await api<SessionReply>(`/crafts/${runCraftId}/live`, {});
       connectionSchema.parse(opened.connection);
@@ -446,7 +527,24 @@ export function useKitchen() {
       }, 5000);
       if (!videoElement.value) throw new RequestError("generic");
       videoElement.value.muted = muted.value;
+      latestAudio = opening.value!;
+      latestActionId = undefined;
+      audioTransferred = true;
+      pendingAudio = undefined;
       const livePlayer = await connectLive({
+        audioContext: preparedAudio,
+        narration,
+        onNarrationError: () => {
+          if (run === generation) errorCode.value = "NARRATION_UNAVAILABLE";
+        },
+        audioPrompt: audioPrompt(),
+        muted: muted.value,
+        onAudioBlocked: () => {
+          if (run === generation) {
+            audioBlocked.value = true;
+            muted.value = true;
+          }
+        },
         connection: opened.connection,
         image,
         prompt: opening.value!.videoPrompt,
@@ -469,11 +567,22 @@ export function useKitchen() {
         return;
       }
       player = livePlayer;
+      if (lastAudioLocale !== locale.value) {
+        void narrateCurrent();
+      }
     } catch (e) {
       if (run !== generation) return;
       failure(e);
       await stop();
       stage.value = "error";
+    } finally {
+      if (
+        !audioTransferred &&
+        preparedAudio &&
+        preparedAudio.state !== "closed"
+      )
+        void preparedAudio.close().catch(() => undefined);
+      if (pendingAudio === preparedAudio) pendingAudio = undefined;
     }
   }
   function captureCover(): Promise<Blob | null> {
@@ -533,6 +642,11 @@ export function useKitchen() {
   }
   async function stop() {
     if (stopTask) return stopTask;
+    voiceGeneration++;
+    const unusedAudio = pendingAudio;
+    pendingAudio = undefined;
+    if (unusedAudio && unusedAudio.state !== "closed")
+      void unusedAudio.close().catch(() => undefined);
     const captured = session;
     session = null;
     generation++;
@@ -549,6 +663,7 @@ export function useKitchen() {
           if (recording) {
             if (recordingUrl.value) URL.revokeObjectURL(recordingUrl.value);
             recordingUrl.value = URL.createObjectURL(recording);
+            if (videoElement.value) videoElement.value.muted = muted.value;
           }
         }
       } catch (e) {
@@ -586,8 +701,11 @@ export function useKitchen() {
         await api(`/live/${liveId}/actions`, { id, ingredient: name, kind }),
       );
       if (player !== current) return;
-      await current.update(action.prompt);
+      latestAudio = action;
+      latestActionId = id;
+      await current.update(action.prompt, audioPrompt());
       await api(`/live/${liveId}/actions/${id}/ack`, {});
+      void narrateCurrent(2000);
       if (kind === "animal") animals.value.push(name);
       else additions.value.push(name);
       if (opening.value)
@@ -610,9 +728,24 @@ export function useKitchen() {
   const addIngredient = (name: string) => addAction(name, "ingredient");
   const addAnimal = (id: string) => addAction(id, "animal");
   function toggleSound() {
+    const wasBlocked = audioBlocked.value;
     muted.value = !muted.value;
-    if (!muted.value) void player?.resumeAudio().catch(() => undefined);
-    if (videoElement.value) {
+    if (player) {
+      player.setMuted(muted.value);
+      if (!muted.value) {
+        void player
+          .resumeAudio()
+          .then(() => {
+            audioBlocked.value = false;
+            if (wasBlocked) void narrateCurrent();
+          })
+          .catch(() => {
+            audioBlocked.value = true;
+            muted.value = true;
+            player?.setMuted(true);
+          });
+      }
+    } else if (videoElement.value) {
       videoElement.value.muted = muted.value;
       void videoElement.value.play().catch(() => undefined);
     }
@@ -662,6 +795,11 @@ export function useKitchen() {
         titleEn: item.titleEn || item.title,
         description: item.description,
         descriptionEn: item.descriptionEn || item.description,
+        effectsPrompt: "",
+        narrationZh: "",
+        narrationEn: "",
+        audioPromptZh: "",
+        audioPromptEn: "",
         imagePrompt: "",
         videoPrompt: "",
       };
@@ -735,6 +873,7 @@ export function useKitchen() {
     adding,
     remaining,
     muted,
+    audioBlocked,
     saved,
     favorites,
     videoElement,

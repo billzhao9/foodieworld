@@ -32,6 +32,7 @@ import { locale, t, localized as l } from "./i18n";
 import { useKitchen } from "./useKitchen";
 import CreationCard from "./components/CreationCard.vue";
 import PublicCreation from "./components/PublicCreation.vue";
+import GenerationProgress from "./components/GenerationProgress.vue";
 import KitchenArt from "./components/KitchenArt.vue";
 import AnimalPicker from "./components/AnimalPicker.vue";
 import AnimalRoster from "./components/AnimalRoster.vue";
@@ -53,6 +54,7 @@ const {
   adding,
   remaining,
   muted,
+  audioBlocked,
   saved,
   favorites,
   videoElement,
@@ -429,7 +431,6 @@ async function addCustom() {
                 :autoplay="stage === 'live'"
                 playsinline
                 :controls="!!recordingUrl && stage !== 'live'"
-                :muted="muted"
                 class="cooking-video"
                 :class="{ 'video-visible': stage === 'live' || !!recordingUrl }"
                 :poster="openingUrl || undefined"
@@ -492,9 +493,20 @@ async function addCustom() {
                 <VolumeX v-if="muted" :size="19" /><Volume2 v-else :size="19" />
               </button>
             </div>
+            <GenerationProgress :stage="stage" />
             <div v-if="error" class="error-banner" role="alert">
               <span>{{ error }}</span>
             </div>
+            <p
+              v-if="stage === 'live' && audioBlocked"
+              class="recording-note"
+              role="status"
+            >
+              {{ t("audioBlocked") }}
+            </p>
+            <p v-else-if="stage === 'live'" class="recording-note">
+              {{ t("audioShow") }}
+            </p>
             <div class="stage-actions">
               <button
                 v-if="stage !== 'live'"

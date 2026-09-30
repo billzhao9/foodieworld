@@ -1,3 +1,4 @@
+import { Narrations, type NarrationSynthesizer } from "./narration";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
@@ -37,8 +38,10 @@ export function createApp(
   config: Config,
   db: Database,
   upstream: Upstream = makeUpstream(config),
+  synthesizer?: NarrationSynthesizer,
 ) {
   const crafts = new Crafts(db, upstream);
+  const narrations = new Narrations(db, crafts, synthesizer);
   const sessions = new LiveSessions(db, upstream, crafts, config.environment);
   const app = new Hono<{ Variables: { owner: string } }>();
   app.use("/api/*", async (c, next) => {
@@ -177,6 +180,21 @@ export function createApp(
   app.get("/api/crafts/:id", async (c) =>
     c.json(await crafts.poll(uuid.parse(c.req.param("id")), c.get("owner"))),
   );
+  app.post("/api/crafts/:id/narration", async (c) => {
+    const body = z
+      .object({ language: z.enum(["zh", "en"]), actionId: uuid.optional() })
+      .strict()
+      .parse(await c.req.json());
+    const audio = await narrations.get(
+      uuid.parse(c.req.param("id")),
+      c.get("owner"),
+      body.language,
+      body.actionId,
+    );
+    return new Response(new Uint8Array(audio), {
+      headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" },
+    });
+  });
   app.get("/api/crafts/:id/image", async (c) => {
     const craft = await crafts.read(
       uuid.parse(c.req.param("id")),

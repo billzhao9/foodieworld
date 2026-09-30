@@ -25,6 +25,16 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    fs: {
+      deny: [
+        "**/.env*",
+        "**/*.{crt,pem}",
+        "**/.git/**",
+        "**/.data/**",
+        "**/.codex/**",
+        "**/.agents/**",
+      ],
+    },
     proxy: { "/api": "http://127.0.0.1:4174" },
   },
   build: { chunkSizeWarningLimit: 900 },
