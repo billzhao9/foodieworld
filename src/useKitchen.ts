@@ -18,7 +18,8 @@ import {
   recordingSupported as canRecord,
   type LivePlayer,
 } from "./lib/live";
-import { saveCreation, listCreations, getVideo, getImage } from "./lib/storage";
+import { listCreations, getVideo, getImage } from "./lib/storage";
+import { keepPendingCreation, pendingCreations, uploadPendingCreation, type PendingCreation } from "./lib/recording-outbox";
 import { z } from "zod";
 const activeCraftKey = "foodieworld.activeCraftId";
 const restoredCraftSchema = z.object({
@@ -281,6 +282,7 @@ export function useKitchen() {
     saveTask: Promise<void> | null = null,
     saveId = randomId();
   let pendingAudio: AudioContext | undefined;
+  let connectingPlayer: Promise<LivePlayer> | null = null;
   let latestAudio: { effectsPrompt?: string } = {};
   let latestActionId: string | undefined;
   let voiceGeneration = 0;
@@ -448,6 +450,7 @@ export function useKitchen() {
       await api("/auth/login", { password });
       authenticated.value = true;
       await refresh();
+      void recoverPendingSaves();
       await restoreCraft();
     } catch (e) {
       passwordError.value = msg(e instanceof RequestError ? e.code : "generic");
@@ -480,6 +483,7 @@ export function useKitchen() {
     recording = null;
     hadPlayback = false;
     saved.value = false;
+    if (saveState.value === "saved" || saveState.value === "missing") saveState.value = "idle";
     errorCode.value = "";
     statusCode.value = "";
     stage.value = "idle";
@@ -623,7 +627,7 @@ export function useKitchen() {
       latestActionId = undefined;
       audioTransferred = true;
       pendingAudio = undefined;
-      const livePlayer = await connectLive({
+      const connectionTask = connectLive({
         audioContext: preparedAudio,
         narration,
         onNarrationError: () => {
@@ -657,10 +661,12 @@ export function useKitchen() {
           }
         },
       });
-      if (run !== generation) {
-        await livePlayer.close();
-        return;
-      }
+      connectingPlayer = connectionTask;
+      const livePlayer = await connectionTask.finally(() => {
+        if (connectingPlayer === connectionTask) connectingPlayer = null;
+      });
+      // stop() owns a pending connection too, including its final recording.
+      if (run !== generation) return;
       player = livePlayer;
       if (lastAudioLocale !== locale.value) {
         void narrateCurrent();
@@ -745,17 +751,23 @@ export function useKitchen() {
       void unusedAudio.close().catch(() => undefined);
     const captured = session;
     session = null;
+    // Release the paid session immediately, without blocking local recording or upload.
+    if (captured) void api(`/live/${captured.id}/stop`, {}).catch(() => undefined);
     generation++;
     clearInterval(timer);
     clearInterval(heartbeat);
     const instance = player;
+    const pendingConnection = connectingPlayer;
+    connectingPlayer = null;
     player = null;
-    const capturedCover = instance ? captureCover() : Promise.resolve(null);
+    if ((instance || pendingConnection) && hadPlayback) saveState.value = "saving";
+    const capturedCover = instance || pendingConnection ? captureCover() : Promise.resolve(null);
     stopTask = (async () => {
       try {
         cover = (await capturedCover) ?? cover;
-        if (instance) {
-          recording = await instance.close();
+        const closingPlayer = instance ?? await pendingConnection?.catch(() => null);
+        if (closingPlayer) {
+          recording = await closingPlayer.close();
           if (recording) {
             if (recordingUrl.value) URL.revokeObjectURL(recordingUrl.value);
             recordingUrl.value = URL.createObjectURL(recording);
@@ -764,19 +776,14 @@ export function useKitchen() {
         }
       } catch (e) {
         failure(e);
-      } finally {
-        if (captured)
-          try {
-            await api(`/live/${captured.id}/stop`, {});
-          } catch (e) {
-            failure(e);
-          }
       }
       if (stage.value !== "idle") stage.value = "stopped";
       adding.value = false;
       if (recording?.size && !saved.value) await persistCreation();
-      else if (hadPlayback && !recording?.size)
+      else if (hadPlayback && !recording?.size) {
         errorCode.value = "RECORDING_MISSING";
+        saveState.value = "missing";
+      }
     })().finally(() => {
       stopTask = null;
     });
@@ -936,48 +943,79 @@ export function useKitchen() {
     }
     await persistCreation();
   }
+  const saveState = ref<"idle" | "saving" | "pending" | "failed" | "saved" | "missing">("idle");
+  const pendingSaveCount = ref(0);
+  let recoveryTask: Promise<void> | null = null;
   async function persistCreation() {
     if (saveTask) return saveTask;
     if (!image || !opening.value || saved.value) return;
     const id = saveId;
     const details = opening.value;
+    const item: PendingCreation = {
+      meta: {
+        id, dishId: "custom", baseIngredients: [...baseIngredients.value],
+        cookware: activeCookware.value, title: details.title, titleEn: details.titleEn,
+        description: details.description, descriptionEn: details.descriptionEn,
+        ingredients: [...additions.value], animals: [...animals.value], createdAt: Date.now(),
+      },
+      image, video: recording, cover,
+    };
     statusCode.value = "saving";
+    saveState.value = "saving";
     saveTask = (async () => {
+      let durable = false;
       try {
-        await saveCreation(
-          {
-            id: saveId,
-            dishId: "custom",
-            baseIngredients: [...baseIngredients.value],
-            cookware: activeCookware.value,
-            title: details.title,
-            titleEn: details.titleEn,
-            description: details.description,
-            descriptionEn: details.descriptionEn,
-            ingredients: [...additions.value],
-            animals: [...animals.value],
-            createdAt: Date.now(),
-          },
-          image,
-          recording,
-          cover,
-        );
+        await keepPendingCreation(item);
+        durable = true;
+      } catch { /* Upload can still succeed when local storage is unavailable. */ }
+      try {
+        await uploadPendingCreation(item);
         if (id === saveId) {
           saved.value = true;
           statusCode.value = "saved";
           if (errorCode.value === "SAVE_FAILED") errorCode.value = "";
         }
+        saveState.value = "saved";
         await refresh();
       } catch {
+        saveState.value = durable ? "pending" : "failed";
         if (id === saveId) {
-          errorCode.value = "SAVE_FAILED";
+          if (!durable) errorCode.value = "SAVE_FAILED";
           statusCode.value = "";
         }
       }
-    })().finally(() => {
-      saveTask = null;
-    });
+      pendingSaveCount.value = await pendingCreations().then(items => items.length).catch(() => 0);
+    })().finally(() => { saveTask = null; });
     return saveTask;
+  }
+  let memoryRetries = 0;
+  function recoverPendingSaves(manual = false): Promise<void> {
+    if (recoveryTask) return recoveryTask;
+    if (saveTask) return saveTask;
+    recoveryTask = (async () => {
+      // Memory-only save is retried too when IndexedDB is unavailable.
+      if (recording?.size && !saved.value && saveState.value === "failed" && (manual || memoryRetries++ < 5)) await persistCreation();
+      const items = await pendingCreations().catch(() => []);
+      pendingSaveCount.value = items.length;
+      if (!items.length) return;
+      const due = items.filter(item => manual || ((item.attempts ?? 0) < 5 && (item.retryAt ?? 0) <= Date.now()));
+      if (!due.length) { saveState.value = "pending"; return; }
+      saveState.value = "saving";
+      for (const item of due) {
+        try {
+          await uploadPendingCreation(item);
+          pendingSaveCount.value--;
+          if (item.meta.id === saveId) {
+            saved.value = true;
+            statusCode.value = "saved";
+            if (errorCode.value === "SAVE_FAILED") errorCode.value = "";
+          }
+        } catch { /* Retain the entry for the next online/visible retry. */ }
+      }
+      if (!saveTask) saveState.value = pendingSaveCount.value ? "pending" : "saved";
+      await refresh();
+    })().finally(() => { recoveryTask = null; });
+    return recoveryTask;
   }
   async function openFavorite(item: SavedCreation) {
     selectedCookware.value = item.cookware;
@@ -1029,9 +1067,21 @@ export function useKitchen() {
       });
     void stop();
   }
+  const retrySaves = () => {
+    if (authenticated.value) void recoverPendingSaves();
+  };
+  const warnUnsaved = (event: BeforeUnloadEvent) => {
+    if (["live", "connecting"].includes(stage.value) || !!saveTask || saveState.value === "saving" || saveState.value === "failed") {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  };
   const hidden = () => {
     if (document.hidden) leave();
-    else if (galleryVisible()) void refresh();
+    else {
+      retrySaves();
+      if (galleryVisible()) void refresh();
+    }
   };
   let galleryPoll: ReturnType<typeof setInterval> | undefined;
   onMounted(async () => {
@@ -1041,6 +1091,7 @@ export function useKitchen() {
       await api("/auth");
       authenticated.value = true;
       await refresh();
+      void recoverPendingSaves();
       await restoreCraft();
     } catch {
       authenticated.value = false;
@@ -1048,15 +1099,22 @@ export function useKitchen() {
       authLoading.value = false;
     }
     galleryPoll = setInterval(() => {
-      if (!document.hidden && galleryVisible()) void refresh();
+      if (!document.hidden) {
+        retrySaves();
+        if (galleryVisible()) void refresh();
+      }
     }, 30_000);
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", leave);
+    window.addEventListener("online", retrySaves);
+    window.addEventListener("beforeunload", warnUnsaved);
   });
   onUnmounted(() => {
     clearInterval(galleryPoll);
     document.removeEventListener("visibilitychange", hidden);
     window.removeEventListener("pagehide", leave);
+    window.removeEventListener("online", retrySaves);
+    window.removeEventListener("beforeunload", warnUnsaved);
     leave();
     if (openingUrl.value.startsWith("blob:"))
       URL.revokeObjectURL(openingUrl.value);
@@ -1083,6 +1141,9 @@ export function useKitchen() {
     muted,
     audioBlocked,
     saved,
+    saveState,
+    pendingSaveCount,
+    retrySaving: recoverPendingSaves,
     favorites,
     galleryLoading,
     galleryError,

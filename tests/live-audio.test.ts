@@ -633,3 +633,20 @@ it("waits for final video data when the browser becomes inactive before dispatch
   expect(await (await closing)?.text()).toBe("final-video");
   expect(recorder.stop).not.toHaveBeenCalled();
 });
+
+
+it('salvages recorded chunks if the final stop event never arrives', async () => {
+  vi.useFakeTimers();
+  const a = args();
+  const player = await connectLive(a);
+  const sdkClient = sdk.instances[0];
+  sdkClient.emit('trackReceived', 'main_video', new Track('video', 'video-main'));
+  // Use the same SDK track event shape as production.
+  const recorder = Recorder.instances[0];
+  if (!recorder) throw new Error('Recorder not started');
+  recorder.ondataavailable?.({ data: new Blob(['checkpoint'], {type: 'video/webm'}) });
+  recorder.stop.mockImplementation(() => { recorder.state = 'inactive'; });
+  const closed = player.close();
+  await vi.advanceTimersByTimeAsync(15001);
+  expect((await closed)?.size).toBeGreaterThan(0);
+});

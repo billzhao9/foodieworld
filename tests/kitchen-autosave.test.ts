@@ -1,3 +1,4 @@
+import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 vi.mock("vue", async (original) => ({
   ...(await original<typeof import("vue")>()),
@@ -25,6 +26,7 @@ const clip = new Blob(["video"], { type: "video/mp4" });
 let callbacks: Parameters<typeof connectLive>[0];
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("indexedDB", new IDBFactory());
   vi.stubGlobal("sessionStorage", { setItem: vi.fn(), getItem: () => null });
   vi.stubGlobal(
     "fetch",
@@ -104,7 +106,7 @@ it("keeps the recording on upload failure and retries with the same id", async (
   await k.stop();
   expect(k.saved.value).toBe(false);
   expect(k.recordingUrl.value).toMatch(/^blob:/);
-  expect(k.error.value).toContain("保存未完成");
+  expect(k.saveState.value).toBe("pending");
   await k.save();
   expect(k.saved.value).toBe(true);
   expect(k.error.value).toBe("");
@@ -159,7 +161,7 @@ function mockActions() {
   return names;
 }
 it("queues mixed rapid clicks in order with a scene dwell between accepted changes", async () => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   const k = await live();
   const names = mockActions();
   k.addIngredient("云端彩珠");
@@ -180,7 +182,7 @@ it("queues mixed rapid clicks in order with a scene dwell between accepted chang
   await k.stop();
 });
 it("cancels unsent additions on stop and never sends them into a later round", async () => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   const k = await live();
   const names = mockActions();
   k.addIngredient("云端彩珠");
@@ -192,7 +194,7 @@ it("cancels unsent additions on stop and never sends them into a later round", a
   expect(k.additionQueue.value[1].status).toBe("cancelled");
 });
 it("supports removing a waiting action and reports queue capacity instead of silently ignoring taps", async () => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   const k = await live();
   mockActions();
   for (let i = 0; i < 9; i++) k.addIngredient(`加料${i}`);
@@ -224,4 +226,62 @@ it("refreshes shared creations when entering the gallery and deduplicates reques
   await kitchen.refreshGallery();
   expect(kitchen.galleryError.value).toBe(true);
   expect(kitchen.favorites.value[0].id).toBe("another-visitor");
+});
+
+
+it("saves without waiting for a stalled remote stop response", async () => {
+  const k = await live();
+  const previous = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation((url: any, init?: any) =>
+    String(url).endsWith('/stop') ? new Promise(() => {}) : previous(url, init));
+  await k.stop();
+  expect(saveCreation).toHaveBeenCalledOnce();
+  expect(k.saveState.value).toBe('saved');
+});
+it("persists failed uploads on device and recovers them without generation", async () => {
+  const { pendingCreations } = await import('../src/lib/recording-outbox');
+  const k = await live();
+  vi.mocked(saveCreation).mockRejectedValueOnce(new Error('offline'));
+  await k.stop();
+  expect(k.saveState.value).toBe('pending');
+  expect((await pendingCreations())[0].video?.size).toBe(clip.size);
+  const reloaded = useKitchen();
+  vi.mocked(connectLive).mockClear();
+  await reloaded.retrySaving(true);
+  expect(await pendingCreations()).toEqual([]);
+  expect(reloaded.saveState.value).toBe('saved');
+  expect(connectLive).not.toHaveBeenCalled();
+});
+it("reports a memory-only recording when local backup and upload both fail", async () => {
+  const k = await live();
+  vi.stubGlobal('indexedDB', undefined);
+  vi.mocked(saveCreation).mockRejectedValueOnce(new Error('offline'));
+  await k.stop();
+  expect(k.saveState.value).toBe('failed');
+  expect(k.recordingUrl.value).toMatch(/^blob:/);
+});
+
+it('captures a connection that finishes returning after stop was requested', async () => {
+  let finish!: () => void;
+  let ready!: () => void;
+  const playing = new Promise<void>(resolve => { ready = resolve; });
+  const release = new Promise<void>(resolve => { finish = resolve; });
+  const close = vi.fn().mockResolvedValue(clip);
+  vi.mocked(connectLive).mockImplementationOnce(async options => {
+    options.onPlaying();
+    ready();
+    await release;
+    return { close, update: vi.fn(), stopSpeech: vi.fn() } as any;
+  });
+  const k = useKitchen();
+  k.videoElement.value = {videoWidth: 0, muted: false} as HTMLVideoElement;
+  k.selectIngredients(['番茄']);
+  const started = k.start();
+  await playing;
+  const stopped = k.stop();
+  finish();
+  await Promise.all([started, stopped]);
+  expect(close).toHaveBeenCalledOnce();
+  expect(saveCreation).toHaveBeenCalledOnce();
+  expect(k.saved.value).toBe(true);
 });

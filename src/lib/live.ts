@@ -353,7 +353,13 @@ export async function connectLive(args: {
           // dispatches its final dataavailable and stop events (notably Safari).
           // Always await the listener installed at recorder creation.
           if (recorder.state !== "inactive") recorder.stop();
-          await bounded(recordingStopped!, 15000, "RECORDING_STOP_TIMEOUT");
+          try {
+            await bounded(recordingStopped!, 15000, "RECORDING_STOP_TIMEOUT");
+          } catch (error) {
+            // Salvage received chunks instead of discarding the entire recording.
+            if (!chunks.length) throw error;
+            diagnostic(error);
+          }
         }
         if (recordingError && !chunks.length) throw recordingError;
         return chunks.length

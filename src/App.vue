@@ -70,6 +70,9 @@ const {
   muted,
   audioBlocked,
   saved,
+  saveState,
+  pendingSaveCount,
+  retrySaving,
   favorites,
   galleryLoading,
   galleryError,
@@ -379,6 +382,22 @@ async function addCustom() {
           <Sparkles :size="18" />{{ t("lab") }}<span class="nav-star">✦</span>
         </button>
       </nav>
+      <div v-if="saveState !== 'idle'" class="save-notice content-width" role="status" aria-live="polite">
+        <LoaderCircle v-if="saveState === 'saving'" class="spin" :size="18" />
+        <Check v-else-if="saveState === 'saved'" :size="18" />
+        <span>{{ saveState === 'saving'
+          ? l('正在自动保存录像，请稍候…', 'Automatically saving your video…')
+          : saveState === 'pending'
+            ? l(`本机保留了 ${pendingSaveCount} 个待上传作品，将自动重试；仍未上传可点重试。`, `${pendingSaveCount} creations are kept on this device. Upload retries automatically; you can also retry below.`)
+            : saveState === 'missing'
+              ? l('浏览器没有交付录像，视频未能保存。请使用支持录制的 Safari 或 Chrome，并保持页面打开直到保存完成。', 'The browser did not return a recording; no video was saved. Use a recording-capable Safari or Chrome browser and keep the page open until saving finishes.')
+            : saveState === 'failed'
+              ? l('上传失败，本机备份也未成功。请保持此页打开并重试，或下载录像。', 'Upload and local backup failed. Keep this page open and retry, or download your recording.')
+              : l('作品已保存到共享画廊', 'Creation saved to the shared gallery') }}</span>
+        <button v-if="saveState === 'pending' || saveState === 'failed'" @click="retrySaving(true)">
+          {{ l('重试上传', 'Retry upload') }}
+        </button>
+      </div>
       <main v-if="page === 'catalog'" class="catalog-page content-width">
         <section class="welcome">
           <div class="welcome-copy">

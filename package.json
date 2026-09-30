@@ -32,7 +32,8 @@
     "vitest": "4.1.0",
     "@playwright/test": "1.58.2",
     "@types/pg": "8.18.0",
-    "esbuild": "0.27.7"
+    "esbuild": "0.27.7",
+    "fake-indexeddb": "6.2.5"
   },
   "engines": {
     "node": ">=22.12"

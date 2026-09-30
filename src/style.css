@@ -3053,3 +3053,7 @@ html, body { overscroll-behavior-y: none; }
 .gallery-sync p { color: #cdbbdf; font-size: 12px; line-height: 1.5; margin: 0; }
 .gallery-sync button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 48px; flex-shrink: 0; padding: 10px 14px; border-radius: 14px; color: #ffe095; background: #3b294c; }
 .gallery-sync button:disabled { opacity: .65; }
+
+.save-notice { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; padding: 12px 16px; background: #392849; border: 1px solid #72547e; border-radius: 16px; font-size: 13px; line-height: 1.6; }
+.save-notice > svg { flex-shrink: 0; }
+.save-notice button { flex-shrink: 0; min-height: 48px; padding: 8px 12px; border-radius: 12px; background: #f4d58b; color: #30213f; }
