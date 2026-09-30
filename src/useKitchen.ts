@@ -1,3 +1,4 @@
+import { foodPresentationPrompt } from "../shared/video-direction";
 import { cookwareSchema } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
@@ -559,7 +560,7 @@ export function useKitchen() {
         },
         connection: opened.connection,
         image,
-        prompt: opening.value!.videoPrompt,
+        prompt: foodPresentationPrompt(opening.value!.videoPrompt),
         video: videoElement.value,
         onError: () => {
           if (run === generation) {

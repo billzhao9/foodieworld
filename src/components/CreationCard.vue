@@ -3,6 +3,7 @@ import { ArrowRight, Film, Heart } from "lucide-vue-next";
 import type { SavedCreation } from "../../shared/contracts";
 import { t, localized as l } from "../i18n";
 import AnimalRoster from "./AnimalRoster.vue";
+import ReplayPlayer from "./ReplayPlayer.vue";
 import ShareCreation from "./ShareCreation.vue";
 defineProps<{ item: SavedCreation }>();
 defineEmits<{ open: [item: SavedCreation] }>();
@@ -10,14 +11,11 @@ defineEmits<{ open: [item: SavedCreation] }>();
 <template>
   <article class="dish-card favorite-card creation-card">
     <div class="dish-picture creation-media">
-      <video
+      <ReplayPlayer
         v-if="item.hasVideo"
         :src="`/api/creations/${encodeURIComponent(item.id)}/video`"
         :poster="item.imageUrl"
-        :aria-label="l(item.title, item.titleEn || item.title)"
-        controls
-        playsinline
-        preload="none"
+        :title="l(item.title, item.titleEn || item.title)"
       />
       <button v-else class="creation-image-button" @click="$emit('open', item)">
         <img

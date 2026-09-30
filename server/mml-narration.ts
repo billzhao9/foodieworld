@@ -9,10 +9,12 @@ const MODEL = "elevenlabs-flash-v2-5-tts";
 // Explicit language-matched voices from the MML ONE production catalogue.
 // The MCP ?lang parameter localizes tool responses; it does not cast a voice.
 export const NARRATION_VOICES = Object.freeze({
-  zh: process.env.NARRATION_VOICE_ZH?.trim() || "5s3UifUu3OJ90z17rRMA", // Jun: Mandarin, energetic
+  zh:
+    process.env.NARRATION_VOICE_ZH?.trim() ||
+    "db54b7adb3c343509bb648f14462f8ab", // Fish: Chinese entertainment / variety
   en: process.env.NARRATION_VOICE_EN?.trim() || "FGY2WhTYpPnrIDTdsKH5", // Laura: English, quirky
 });
-export const MML_NARRATION_NAMESPACE = `mml-v2:${MODEL}:${NARRATION_VOICES.zh}:${NARRATION_VOICES.en}`;
+export const MML_NARRATION_NAMESPACE = `mml-v3:fish-audio-s2-pro-tts:${MODEL}:${NARRATION_VOICES.zh}:${NARRATION_VOICES.en}`;
 const MAX_AUDIO = 12 * 1024 * 1024;
 const receiptSchema = z.object({
   url: z.string().url(),
@@ -104,11 +106,142 @@ async function download(value: string): Promise<Buffer> {
   }
 }
 
+async function callTool(
+  config: Config,
+  language: string,
+  requestId: string,
+  name: string,
+  args: unknown,
+  timeoutMs = 45000,
+): Promise<unknown> {
+  const endpoint = new URL("/mcp", config.baseUrl);
+  endpoint.searchParams.set("lang", language);
+  const res = await fetch(endpoint, {
+    method: "POST",
+    redirect: "error",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: requestId,
+      method: "tools/call",
+      params: { name, arguments: args },
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error("MCP_FAILED");
+  const raw = await res.text();
+  if (raw.length > 1024 * 1024) throw new Error("MCP_RESPONSE_TOO_LARGE");
+  const responseBody: unknown = res.headers
+    .get("content-type")
+    ?.includes("text/event-stream")
+    ? raw
+        .split(/\r?\n\r?\n/)
+        .flatMap((block) => {
+          const data = block
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart())
+            .join("\n");
+          if (!data || data === "[DONE]") return [];
+          try {
+            return [JSON.parse(data) as unknown];
+          } catch {
+            return [];
+          }
+        })
+        .find(
+          (value) =>
+            typeof value === "object" &&
+            value !== null &&
+            "id" in value &&
+            value.id === requestId,
+        )
+    : (JSON.parse(raw) as unknown);
+  const envelope = z
+    .object({
+      result: z.object({
+        isError: z.boolean().optional(),
+        content: z.array(
+          z.object({ type: z.string(), text: z.string().optional() }),
+        ),
+      }),
+    })
+    .parse(responseBody);
+  if (envelope.result.isError) throw new Error("MCP_FAILED");
+  const payload = envelope.result.content.find(
+    (item) => item.type === "text" && item.text,
+  )?.text;
+  return JSON.parse(payload ?? "{}");
+}
+
+async function pollFish(
+  config: Config,
+  db: Database,
+  key: string,
+  jobId: string,
+  deadline: number,
+): Promise<string> {
+  while (Date.now() < deadline) {
+    let result: unknown;
+    try {
+      result = await callTool(
+        config,
+        "zh",
+        key,
+        "getJobs",
+        { jobs: [{ kind: "personalAudioJobs", id: jobId }] },
+        Math.max(1, Math.min(15000, deadline - Date.now())),
+      );
+    } catch {
+      throw new ApiError("NARRATION_STATUS_UNAVAILABLE", 503);
+    }
+    const parsed = z
+      .object({
+        data: z.object({
+          jobs: z.array(
+            z.object({
+              id: z.string(),
+              status: z.string(),
+              url: z.string().nullish(),
+            }),
+          ),
+        }),
+      })
+      .safeParse(result);
+    if (!parsed.success)
+      throw new ApiError("NARRATION_STATUS_UNAVAILABLE", 503);
+    const job = parsed.data.data.jobs.find((j) => j.id === jobId);
+    if (job?.status === "completed" && job.url) {
+      await db.pool.query(
+        "UPDATE fw_voice_requests SET state='done',url=$2 WHERE key=$1",
+        [key, job.url],
+      );
+      return job.url;
+    }
+    if (job && ["failed", "cancelled", "canceled"].includes(job.status)) {
+      await db.pool.query(
+        "UPDATE fw_voice_requests SET state='unknown',error='NARRATION_FAILED' WHERE key=$1",
+        [key],
+      );
+      throw new ApiError("NARRATION_FAILED", 502);
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(2000, Math.max(0, deadline - Date.now()))),
+    );
+  }
+  throw new ApiError("NARRATION_PENDING", 503);
+}
+
 export function makeMmlNarration(
   config: Config,
   db: Database,
 ): NarrationSynthesizer {
   return async (text, language) => {
+    const deadline = Date.now() + 80000;
     if (!config.apiKey) throw new ApiError("API_NOT_CONFIGURED", 503);
     const key = createHash("sha256")
       .update(
@@ -125,108 +258,101 @@ export function makeMmlNarration(
         "INSERT INTO fw_voice_requests(key,state) VALUES($1,'pending') ON CONFLICT DO NOTHING RETURNING key",
         [key],
       );
-      let url: string;
+      let url: string | undefined;
+      let jobId: string | undefined;
       if (!claim.rows.length) {
         const saved = await db.pool.query(
-          "SELECT state,url FROM fw_voice_requests WHERE key=$1",
+          "SELECT state,url,job_id,error FROM fw_voice_requests WHERE key=$1",
           [key],
         );
         const row = saved.rows[0];
-        if (row?.state !== "done" || typeof row.url !== "string")
-          throw new ApiError("NARRATION_OUTCOME_UNKNOWN", 409);
-        url = row.url;
+        if (row?.error === "NARRATION_FAILED")
+          throw new ApiError("NARRATION_FAILED", 502);
+        if (row?.state === "done" && typeof row.url === "string") url = row.url;
+        else if (
+          language === "zh" &&
+          row?.state === "pending" &&
+          typeof row.job_id === "string"
+        )
+          jobId = row.job_id;
+        else throw new ApiError("NARRATION_OUTCOME_UNKNOWN", 409);
       } else {
         // There is deliberately no retry around this paid dispatch. A lost
         // response, crash, or ambiguous tool error leaves a durable barrier.
         try {
-          const endpoint = new URL("/mcp", config.baseUrl);
-          endpoint.searchParams.set("lang", language);
-          const res = await fetch(endpoint, {
-            method: "POST",
-            redirect: "error",
-            headers: {
-              Authorization: `Bearer ${config.apiKey}`,
-              "Content-Type": "application/json",
-              Accept: "application/json, text/event-stream",
-            },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: key,
-              method: "tools/call",
-              params: {
-                name: "previewVoiceover",
-                arguments: {
+          const result = await callTool(
+            config,
+            language,
+            key,
+            language === "zh" ? "runAudioTool" : "previewVoiceover",
+            language === "zh"
+              ? {
+                  scope: "personal",
+                  task: "text-to-speech",
+                  provider: "fish-audio",
+                  model: "fish-audio-s2-pro-tts",
+                  label: "Foodie World narration",
+                  voiceId: NARRATION_VOICES.zh,
+                  text,
+                }
+              : {
                   provider: "elevenlabs",
                   model: MODEL,
-                  voiceId: NARRATION_VOICES[language],
+                  voiceId: NARRATION_VOICES.en,
                   text,
                 },
-              },
-            }),
-            signal: AbortSignal.timeout(90000),
-          });
-          if (!res.ok) throw new Error("MCP_FAILED");
-          const raw = await res.text();
-          if (raw.length > 1024 * 1024)
-            throw new Error("MCP_RESPONSE_TOO_LARGE");
-          const responseBody: unknown = res.headers
-            .get("content-type")
-            ?.includes("text/event-stream")
-            ? raw
-                .split(/\r?\n\r?\n/)
-                .flatMap((block) => {
-                  const data = block
-                    .split(/\r?\n/)
-                    .filter((line) => line.startsWith("data:"))
-                    .map((line) => line.slice(5).trimStart())
-                    .join("\n");
-                  if (!data || data === "[DONE]") return [];
-                  try {
-                    return [JSON.parse(data) as unknown];
-                  } catch {
-                    return [];
-                  }
-                })
-                .find(
-                  (value) =>
-                    typeof value === "object" &&
-                    value !== null &&
-                    "id" in value &&
-                    value.id === key,
-                )
-            : (JSON.parse(raw) as unknown);
-          const envelope = z
-            .object({
-              result: z.object({
-                isError: z.boolean().optional(),
-                content: z.array(
-                  z.object({ type: z.string(), text: z.string().optional() }),
-                ),
-              }),
-            })
-            .parse(responseBody);
-          if (envelope.result.isError) throw new Error("MCP_FAILED");
-          const payload = envelope.result.content.find(
-            (item) => item.type === "text" && item.text,
-          )?.text;
-          const parsed = resultSchema.parse(JSON.parse(payload ?? ""));
-          const receipt = parsed.status === "done" ? parsed.data : parsed.done;
-          // Save even before validating/downloading: synthesis already happened.
-          await db.pool.query(
-            "UPDATE fw_voice_requests SET state='done',url=$2,storage_id=$3 WHERE key=$1",
-            [key, receipt.url, receipt.storageId],
           );
-          url = receipt.url;
+          if (language === "zh") {
+            const queued = z
+              .object({
+                data: z.object({
+                  jobs: z
+                    .array(
+                      z.object({
+                        kind: z.literal("personalAudioJobs"),
+                        id: z.string().min(1),
+                      }),
+                    )
+                    .length(1),
+                }),
+              })
+              .parse(result);
+            jobId = queued.data.jobs[0]!.id;
+            await db.pool.query(
+              "UPDATE fw_voice_requests SET job_id=$2 WHERE key=$1",
+              [key, jobId],
+            );
+          } else {
+            const parsed = resultSchema.parse(result);
+            const receipt =
+              parsed.status === "done" ? parsed.data : parsed.done;
+            // Save even before validating/downloading: synthesis already happened.
+            await db.pool.query(
+              "UPDATE fw_voice_requests SET state='done',url=$2,storage_id=$3 WHERE key=$1",
+              [key, receipt.url, receipt.storageId],
+            );
+            url = receipt.url;
+          }
         } catch {
-          await db.pool
-            .query(
-              "UPDATE fw_voice_requests SET state='unknown',error='NARRATION_OUTCOME_UNKNOWN' WHERE key=$1 AND state='pending'",
-              [key],
-            )
-            .catch(() => {});
-          throw new ApiError("NARRATION_OUTCOME_UNKNOWN", 502);
+          if (jobId) {
+            // Recover a known paid job if the first persistence attempt failed.
+            await db.pool.query(
+              "UPDATE fw_voice_requests SET job_id=$2 WHERE key=$1",
+              [key, jobId],
+            );
+          } else {
+            await db.pool
+              .query(
+                "UPDATE fw_voice_requests SET state='unknown',error='NARRATION_OUTCOME_UNKNOWN' WHERE key=$1 AND state='pending'",
+                [key],
+              )
+              .catch(() => {});
+            throw new ApiError("NARRATION_OUTCOME_UNKNOWN", 502);
+          }
         }
       }
+      if (jobId) url = await pollFish(config, db, key, jobId, deadline);
+      if (!url) throw new ApiError("NARRATION_OUTCOME_UNKNOWN", 409);
       return await download(url);
     } catch (error) {
       if (error instanceof ApiError) throw error;

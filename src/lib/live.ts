@@ -12,9 +12,9 @@ export interface LivePlayer {
 }
 
 const formats = [
+  "video/mp4",
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
-  "video/mp4",
   "video/webm",
 ];
 export function recordingSupported(): boolean {
@@ -271,8 +271,40 @@ export async function connectLive(args: {
         .replace(/https?:\/\/\S+/g, "[endpoint]"),
     );
   }
+  function startRecording() {
+    const track = output.getTracks().find((track) => track.kind === "video");
+    if (track && !recorder && recordingSupported()) {
+      const stream = new MediaStream([
+        track,
+        ...(audioDestination?.stream.getAudioTracks() ??
+          output.getAudioTracks()),
+      ]);
+      recorder = new MediaRecorder(stream, {
+        mimeType: formats.find((type) => MediaRecorder.isTypeSupported(type)),
+      });
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onerror = () => {
+        recordingError = new Error("RECORDING_FAILED");
+        fail(recordingError);
+      };
+      recorder.start(1000);
+    }
+  }
   const onPlaying = () => {
-    if (!closed && started && args.video.videoWidth > 0) {
+    if (
+      !closed &&
+      started &&
+      args.video.videoWidth > 0 &&
+      args.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
+      try {
+        startRecording();
+      } catch (error) {
+        fail(error);
+        return;
+      }
       clearTimeout(mediaTimer);
       args.onPlaying();
       if (closed) return;
@@ -411,24 +443,7 @@ export async function connectLive(args: {
           fail(error);
         }
       });
-      if (name === "main_video" && !recorder && recordingSupported()) {
-        const stream = new MediaStream([
-          track,
-          ...(audioDestination?.stream.getAudioTracks() ??
-            output.getAudioTracks()),
-        ]);
-        recorder = new MediaRecorder(stream, {
-          mimeType: formats.find((type) => MediaRecorder.isTypeSupported(type)),
-        });
-        recorder.ondataavailable = (event) => {
-          if (event.data.size) chunks.push(event.data);
-        };
-        recorder.onerror = () => {
-          recordingError = new Error("RECORDING_FAILED");
-          fail(recordingError);
-        };
-        recorder.start(1000);
-      }
+      onPlaying();
     } catch (error) {
       fail(error);
     }

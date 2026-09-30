@@ -298,6 +298,23 @@ describe("live audio protocol and routing", () => {
     await player.close();
   });
 
+  it("does not record the audio-only warmup before the first video frame", async () => {
+    const video = new Video();
+    video.videoWidth = 0;
+    video.readyState = 0;
+    const player = await connectLive(args(video, new Context()));
+    sdk.instances[0].emit(
+      "trackReceived",
+      "main_video",
+      new Track("video", "main-video"),
+    );
+    expect(Recorder.instances).toHaveLength(0);
+    video.videoWidth = 640;
+    video.readyState = 2;
+    video.dispatchEvent(new Event("loadeddata"));
+    expect(Recorder.instances).toHaveLength(1);
+    await player.close();
+  });
   it("records late audio through a stable track while listener mute only changes its gain", async () => {
     const context = new Context(),
       video = new Video();

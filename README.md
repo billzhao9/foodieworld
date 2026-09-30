@@ -26,9 +26,9 @@ Each visitor can run one live session at a time, with a maximum of two across th
 
 ## Sound and bilingual commentary
 
-Narration explicitly selects a language-matched voice: Mandarin **Jun** and English **Laura**. Server-only `NARRATION_VOICE_ZH` and `NARRATION_VOICE_EN` settings can override these catalogue voice IDs. Voice changes also change the audio cache namespace, so old default-voice recordings are not reused for new narration. Saved videos keep their original soundtrack. MML ONE's `readAudioVoices` tool lists catalogue voices; its language filter can still include account voices in other languages, so check the voice's native-language and accent metadata before selecting one.
+Narration explicitly selects a language-matched voice: Fish S2 Pro Chinese **Entertainment / Variety** and ElevenLabs English **Laura**. Server-only `NARRATION_VOICE_ZH` and `NARRATION_VOICE_EN` settings can override these catalogue voice IDs. Voice changes also change the audio cache namespace, so old default-voice recordings are not reused for new narration. Saved videos keep their original soundtrack. MML ONE's `readAudioVoices` tool lists catalogue voices; its language filter can still include account voices in other languages, so check the voice's native-language and accent metadata before selecting one.
 
-Visko receives a separate sound-effects prompt for animal calls and cooking sounds. Production host commentary uses MML ONE's enterprise-authenticated `previewVoiceover` tool with ElevenLabs Flash v2.5. Mandarin and English speech are mixed into live playback and the recorded video. The enterprise key is read only by the server; browser clients never receive it.
+Visko receives a separate sound-effects prompt for animal calls and cooking sounds. Production Chinese commentary uses MML ONE's `runAudioTool` with Fish Audio S2 Pro and the approved Chinese variety voice. English uses `previewVoiceover` with ElevenLabs Flash v2.5. Fish job IDs are persisted before polling, so interrupted requests resume the same job without paying for another synthesis. Mandarin and English speech are mixed into live playback and the recorded video. The enterprise key is read only by the server; browser clients never receive it.
 
 Switching languages stops the previous narration and plays the corresponding language. Background audio is lowered during speech. Sound is enabled by default; if the browser blocks playback, tap the sound control to unlock it. Muting affects local listening only—the recording retains its audio.
 
@@ -37,6 +37,11 @@ Narration audio and synthesis receipts are stored in PostgreSQL. Each line is cl
 Set `NARRATION_PROVIDER=mmlone` for cloud speech on Linux or macOS. Production mode selects MML ONE automatically. Local development can use macOS **Tingting** for Mandarin and **Samantha** for English by leaving the provider as `local`. Visko's imitation of human speech is not used as a reliable Mandarin voice.
 
 ## Record, collect, and share
+
+Recording begins only after video frames are available, and prefers MP4 when the browser supports it. Gallery cards open a dedicated large player with a fullscreen control (including Safari's native video fullscreen). Production reverse proxies must forward `Range` and `If-Range` and disable caching for authenticated media; a byte-range request must return `206`, not the entire file.
+
+On phones, touch lists keep native scrolling without visible scrollbars, controls respect safe areas, and text fields avoid iOS focus zoom. Add the site to the home screen for its standalone layout. Finished-food direction makes each appliance a brief preparation beat, followed by transfer to a plate and close food presentation; visual compliance still needs actual playback review.
+
 
 The gallery displays recorded videos and their animal guests. When the browser supports `MediaRecorder`, the app saves actual video that can be downloaded. Unsupported browsers receive an explicit notice.
 
