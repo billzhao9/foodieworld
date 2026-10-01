@@ -274,6 +274,20 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
       "pepper",
     ]);
   });
+  it("returns the scoped WebRTC capability only to the owner and never persists it", async () => {
+    const f = await fixture();
+    const session = await f.managed.start(f.craftId, "owner", "zh");
+    const connection = { protocol: "webrtc", apiBase: "https://api.reactor.inc", sessionId: "provider", modelSlug: "orbis", jwt: "private-session-jwt", expiresAt: Date.now() + 90000 };
+    f.upstream.mockResolvedValueOnce({ connection });
+    expect(await f.managed.connection(session.id, "owner")).toEqual({ connection });
+    const count = f.upstream.mock.calls.length;
+    await expect(f.managed.connection(session.id, "stranger")).rejects.toMatchObject({ status: 409 });
+    expect(f.upstream).toHaveBeenCalledTimes(count);
+    const rows = await db.pool.query("SELECT state,request_payload FROM fw_managed_sessions WHERE id=$1", [session.id]);
+    expect(JSON.stringify(rows.rows)).not.toContain("private-session-jwt");
+    await db.pool.query("UPDATE fw_managed_sessions SET stop_requested=true WHERE id=$1", [session.id]);
+    await expect(f.managed.connection(session.id, "owner")).rejects.toMatchObject({ status: 409 });
+  });
   it("proxies HLS fragments on the owned origin without exposing the viewer ticket", async () => {
     const f = await fixture(),
       session = await f.managed.start(f.craftId, "owner", "zh");

@@ -1,4 +1,4 @@
-import { connectManagedLive } from "./lib/managed-live";
+import { connectManagedLive } from "./lib/managed-webrtc";
 import { foodPresentationPrompt } from "../shared/video-direction";
 import { cookwareSchema } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS, LIVE_ROUND_SECONDS } from "../shared/limits";
@@ -730,7 +730,7 @@ export function useKitchen() {
     try {
       const data = await api<{ session: ManagedStatus }>(`/live/${id}`);
       if (session?.id !== id) return;
-      if (!player && data.session.playbackUrl && !["ended", "failed", "stopping"].includes(data.session.status)) {
+      if (!player && data.session.status === "running") {
         await attachManaged(data.session, generation, pendingAudio);
         pendingAudio = undefined;
       }
@@ -761,12 +761,12 @@ export function useKitchen() {
     session = opened;
     clearInterval(managedPoll);
     managedPoll = setInterval(() => void pollManaged(), 2000);
-    if (!opened.playbackUrl) { pendingAudio = audioContext; return; }
+    if (opened.status !== "running") { pendingAudio = audioContext; return; }
     await nextTick();
     if (!videoElement.value) throw new RequestError("generic");
     let openingSpoken = false;
     const viewing = await connectManagedLive({
-      video: videoElement.value, url: opened.playbackUrl, muted: muted.value, audioContext,
+      video: videoElement.value, getConnection: () => api(`/live/${opened.id}/connection`), expiresAt: opened.expiresAt, muted: muted.value, audioContext,
       onPlaying: () => { if (run === generation && session?.id === opened.id) { hadPlayback = true; stage.value = "live"; statusCode.value = "managedBackground"; if (!openingSpoken) { openingSpoken = true; setTimeout(() => { if (session?.id === opened.id) void narrateCurrent(); }, 800); } } },
       onAudioBlocked: () => { audioBlocked.value = true; muted.value = true; },
       onError: () => { errorCode.value = "NETWORK"; },

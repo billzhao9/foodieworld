@@ -368,6 +368,10 @@ export function createApp(
       c.req.raw,
     ),
   );
+  app.get("/api/live/:id/connection", async (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json(await managed.connection(uuid.parse(c.req.param("id")), c.get("owner")));
+  });
   app.get("/api/live/recover", async (c) =>
     c.json(await managed.recover(c.get("owner"))),
   );

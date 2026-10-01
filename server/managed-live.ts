@@ -7,6 +7,7 @@ import type { Crafts } from "./crafts";
 import type { Narrations, NarrationLanguage } from "./narration";
 import { MediaArchive } from "./media-archive";
 import { ApiError, type Upstream } from "./upstream";
+import { connectionSchema } from "../shared/contracts";
 import type { ManagedSessionStatus } from "../shared/contracts";
 import { LIVE_RESERVATION_SECONDS, LIVE_ROUND_SECONDS } from "../shared/limits";
 
@@ -321,6 +322,16 @@ export class ManagedSessions {
         [row.id, command.command_id],
       );
     }
+  }
+  async connection(id: string, owner: string) {
+    const row = await this.owned(id, owner);
+    if (!row.upstream_id || row.stop_requested)
+      throw new ApiError("LIVE_NOT_READY", 409);
+    // Connection capabilities are returned only to the owning visitor, never
+    // saved in PostgreSQL, gallery data, or local/session storage.
+    return z.object({ connection: connectionSchema.extend({ expiresAt: z.number() }) }).parse(
+      await this.upstream(`/managed-live-sessions/${encodeURIComponent(row.upstream_id)}/connection`),
+    );
   }
   async status(id: string, owner: string) {
     let row = await this.owned(id, owner);

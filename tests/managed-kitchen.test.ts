@@ -3,12 +3,12 @@ const mocks = vi.hoisted(() => ({ unmount: undefined as (() => void) | undefined
 vi.mock('vue', async original => ({ ...(await original<typeof import('vue')>()), onMounted: vi.fn(), onUnmounted: (callback: () => void) => { mocks.unmount = callback; } }));
 vi.mock('../src/i18n', async () => ({ locale: (await import('vue')).ref('zh') }));
 vi.mock('../src/lib/live', () => ({ connectLive: vi.fn(), prepareLiveAudio: vi.fn(), recordingSupported: () => true }));
-vi.mock('../src/lib/managed-live', () => ({ connectManagedLive: vi.fn(async (options: { onPlaying: () => void }) => {
+vi.mock('../src/lib/managed-webrtc', () => ({ connectManagedLive: vi.fn(async (options: { onPlaying: () => void }) => {
  options.onPlaying(); return { close: mocks.close, update: vi.fn(), updateAudio: vi.fn(), speak: vi.fn(), stopSpeech: vi.fn(), setMuted: vi.fn(), resumeAudio: vi.fn() };
 }) }));
 vi.mock('../src/lib/storage', () => ({ listCreations: vi.fn().mockResolvedValue([]), getVideo: vi.fn(), getImage: vi.fn() }));
 import { useKitchen } from '../src/useKitchen';
-import { connectManagedLive } from '../src/lib/managed-live';
+import { connectManagedLive } from '../src/lib/managed-webrtc';
 import { connectLive, prepareLiveAudio } from '../src/lib/live';
 const opening = { title: '汤', titleEn: 'Soup', description: '香', descriptionEn: 'Tasty', imagePrompt: 'A warm bowl of soup', videoPrompt: 'Soup steams on the table' };
 beforeEach(() => {
@@ -19,7 +19,7 @@ beforeEach(() => {
  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
   if (url.endsWith('/image') || url.endsWith('/narration')) return new Response(new Blob(['media']));
   if (url.endsWith('/prepare')) return Response.json({ opening, imageUrl: '/image' });
-  if (url.endsWith('/live')) return Response.json({ managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '/stream/index.m3u8' });
+  if (url.endsWith('/live')) return Response.json({ managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '/stream/index.m3u8', status: 'running' });
   if (url === '/api/live/managed') return Response.json({ session: { managed: true, id: 'managed', expiresAt: Date.now() + 90000, status: mocks.archived ? 'ended' : 'running', recordingStatus: mocks.archived ? 'playable' : 'capturing', commands: [], ...(mocks.archived ? { creationId: 'saved-server' } : {}) } });
   return Response.json({});
  }));
@@ -57,7 +57,7 @@ it('waits for a queued admission before attaching a viewer and preserves the unl
  expect(connectManagedLive).not.toHaveBeenCalled();
  expect(audio.close).not.toHaveBeenCalled();
  await vi.advanceTimersByTimeAsync(2100);
- expect(connectManagedLive).toHaveBeenCalledWith(expect.objectContaining({ audioContext: audio, url: '/stream/index.m3u8' }));
+ expect(connectManagedLive).toHaveBeenCalledWith(expect.objectContaining({ audioContext: audio, getConnection: expect.any(Function) }));
  expect(kitchen.stage.value).toBe('live');
 });
 
