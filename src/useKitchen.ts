@@ -182,14 +182,14 @@ class RequestError extends Error {
     super(code);
   }
 }
-async function api<T>(path: string, body?: unknown): Promise<T> {
+async function api<T>(path: string, body?: unknown, timeout = 180000): Promise<T> {
   let r: Response;
   try {
     r = await fetch(`/api${path}`, {
       method: body === undefined ? "GET" : "POST",
       headers: body === undefined ? {} : { "Content-Type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(180000),
+      signal: AbortSignal.timeout(timeout),
     });
   } catch {
     throw new RequestError("NETWORK");
@@ -766,7 +766,7 @@ export function useKitchen() {
     if (!videoElement.value) throw new RequestError("generic");
     let openingSpoken = false;
     const viewing = await connectManagedLive({
-      video: videoElement.value, getConnection: () => api(`/live/${opened.id}/connection`), expiresAt: opened.expiresAt, muted: muted.value, audioContext,
+      video: videoElement.value, getConnection: () => api(`/live/${opened.id}/connection`, undefined, 10000), expiresAt: opened.expiresAt, muted: muted.value, audioContext,
       onPlaying: () => { if (run === generation && session?.id === opened.id) { hadPlayback = true; stage.value = "live"; statusCode.value = "managedBackground"; if (!openingSpoken) { openingSpoken = true; setTimeout(() => { if (session?.id === opened.id) void narrateCurrent(); }, 800); } } },
       onAudioBlocked: () => { audioBlocked.value = true; muted.value = true; },
       onError: () => { errorCode.value = "NETWORK"; },

@@ -114,10 +114,10 @@ export async function connectManagedLive(args: {
       }
     } finally { connecting = false; }
   }
-  const resume = () => {
+  const resume = (event?: Event) => {
     if (closed || document.hidden) return;
     const state = client?.getPeerConnection()?.connectionState;
-    if (!client || state === "failed" || state === "closed" || state === "disconnected") {
+    if ((event && "persisted" in event && event.persisted) || !client || state === "failed" || state === "closed" || state === "disconnected") {
       clearTimeout(retry); retry = undefined; void connect();
     } else void play();
   };
