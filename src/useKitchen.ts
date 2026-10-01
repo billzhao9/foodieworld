@@ -152,6 +152,10 @@ const copy = {
     "变化命令的结果不确定，本轮已停止以避免重复加料。",
     "The change could not be confirmed. This spell stopped to avoid applying it twice.",
   ],
+  additionPaused: [
+    "这次加料未能确认，后续排队已取消；视频仍会继续播放和保存。",
+    "This addition could not be confirmed. Queued changes were cancelled; video playback and saving continue.",
+  ],
   restored: [
     "已找回料理和开场图。点击开始会开启新一轮视频，不会重新生成开场图。",
     "Your dish and opening image are restored. Start opens a new video session using the existing image.",
@@ -1050,7 +1054,7 @@ export function useKitchen() {
             ? "uncertain"
             : "failed";
           failure(e);
-          statusCode.value = "uncertain";
+          statusCode.value = session?.managed ? "additionPaused" : "uncertain";
           if (session?.managed) {
             // An addition failure is not a failed video transport. Preserve the
             // running server-owned round; stop this queue without blindly
