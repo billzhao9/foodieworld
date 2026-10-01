@@ -21,7 +21,7 @@ import {
   LogOut,
   LockKeyhole,
   WandSparkles,
-  CirclePause,
+  CircleStop,
   Check,
   X,
   LoaderCircle,
@@ -920,7 +920,7 @@ async function addCustom() {
                     t(busy ? "wait" : stage === "error" ? "retry" : "start")
                   }}</button
                 ><button v-else class="secondary-button" @click="stop">
-                  <CirclePause :size="18" />{{ t("stop") }}</button
+                  <CircleStop :size="18" />{{ t("stop") }}</button
                 ><button
                   class="save-button"
                   :disabled="!openingUrl || saved || busy"
