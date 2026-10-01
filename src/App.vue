@@ -105,7 +105,20 @@ async function previewLocalRecording() {
   videoElement.value?.scrollIntoView({block: "center", behavior: "smooth"});
 }
 const pantryPanel = ref<HTMLElement>();
+const additionHintDismissed = ref((() => {
+  try {
+    return localStorage.getItem("foodie-addition-hint-dismissed") === "1";
+  } catch {
+    return false;
+  }
+})());
 function showPantry() {
+  additionHintDismissed.value = true;
+  try {
+    localStorage.setItem("foodie-addition-hint-dismissed", "1");
+  } catch {
+    // Keep the hint dismissed for this visit when browser storage is unavailable.
+  }
   pantryPanel.value?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
   pantryPanel.value?.focus({ preventScroll: true });
 }
@@ -874,7 +887,7 @@ async function addCustom() {
               >
                 <VolumeX v-if="muted" :size="19" /><Volume2 v-else :size="19" />
               </button>
-              <button v-if="stage === 'live'" class="live-add-cta" @click="showPantry">
+              <button v-if="stage === 'live' && !additionHintDismissed" class="live-add-cta" @click="showPantry">
                 <Sparkles :size="17" />{{ l('加点料，改变视频！', 'Add a twist — change the video!') }}
               </button>
             </div>
