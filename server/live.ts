@@ -1,3 +1,4 @@
+import { LIVE_ROUND_SECONDS, LIVE_RESERVATION_SECONDS } from "../shared/limits";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { connectionSchema, type SessionReply } from "../shared/contracts";
@@ -55,7 +56,7 @@ export class LiveSessions {
             requestId: `fw_live_${id}`,
             prompt: craft.opening.videoPrompt,
             model: "visko-orbis-stable",
-            seconds: 60,
+            seconds: LIVE_RESERVATION_SECONDS,
             options: {
               audioEnabled: true,
               passthrough: true,
@@ -65,7 +66,7 @@ export class LiveSessions {
             endUserRef: "_enterprise",
           }),
         );
-      const expiresAt = Date.now() + 60000;
+      const expiresAt = Date.now() + LIVE_ROUND_SECONDS * 1000;
       const updated = await this.db.pool.query(
         "UPDATE fw_live SET upstream_id=$1,expires_at=$2,status='active',heartbeat_at=$3 WHERE id=$4 RETURNING stop_requested",
         [raw.sessionId, expiresAt, Date.now(), id],

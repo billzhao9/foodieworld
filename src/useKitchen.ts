@@ -1,6 +1,6 @@
 import { foodPresentationPrompt } from "../shared/video-direction";
 import { cookwareSchema } from "../shared/cookware";
-import { MAX_BASE_INGREDIENTS } from "../shared/limits";
+import { MAX_BASE_INGREDIENTS, LIVE_ROUND_SECONDS } from "../shared/limits";
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { locale } from "./i18n";
 import { type Dish, ingredients } from "../shared/catalog";
@@ -236,7 +236,7 @@ export function useKitchen() {
     baseIngredients = ref<string[]>([]),
     animals = ref<string[]>([]),
     adding = ref(false),
-    remaining = ref(60),
+    remaining = ref(LIVE_ROUND_SECONDS),
     muted = ref(false),
     audioBlocked = ref(false),
     saved = ref(false),
@@ -487,7 +487,7 @@ export function useKitchen() {
     errorCode.value = "";
     statusCode.value = "";
     stage.value = "idle";
-    remaining.value = 60;
+    remaining.value = LIVE_ROUND_SECONDS;
     if (openingUrl.value.startsWith("blob:"))
       URL.revokeObjectURL(openingUrl.value);
     openingUrl.value = "";

@@ -32,7 +32,7 @@ Start with an opening image, then watch the scene develop through a live video s
 
 A three-stage progress display shows elapsed time and an estimated remaining range. Estimates use recent successful generation times in the current browser and exclude obvious cache hits. This is an estimate, not an upstream completion percentage. Longer waits receive a clear status message; generation is only marked complete when video actually starts playing.
 
-Each visitor can run one live session at a time, with a maximum of two across the app. Sessions last up to 60 seconds. Leaving, losing connectivity, or putting the page in the background stops generation, with server-side timeout cleanup as a fallback.
+Each visitor can run one live session at a time, with a maximum of two across the app. Rounds last up to 90 seconds. MML ONE currently accepts fixed duration tiers, so the server reserves 120 seconds and actively stops at the 90-second app deadline. The upstream settles elapsed session time; pausing generation does not pause this clock. Leaving, losing connectivity, or putting the page in the background stops generation, with server-side timeout cleanup as a fallback.
 
 ## Sound and bilingual commentary
 
