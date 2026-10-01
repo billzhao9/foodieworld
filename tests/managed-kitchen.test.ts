@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ unmount: undefined as (() => void) | undefined, close: vi.fn(), archived: false }));
+const mocks = vi.hoisted(() => ({ unmount: undefined as (() => void) | undefined, close: vi.fn(), archived: false, ended: false }));
 vi.mock('vue', async original => ({ ...(await original<typeof import('vue')>()), onMounted: vi.fn(), onUnmounted: (callback: () => void) => { mocks.unmount = callback; } }));
 vi.mock('../src/i18n', async () => ({ locale: (await import('vue')).ref('zh') }));
 vi.mock('../src/lib/live', () => ({ connectLive: vi.fn(), prepareLiveAudio: vi.fn(), recordingSupported: () => true }));
@@ -12,7 +12,7 @@ import { connectManagedLive } from '../src/lib/managed-webrtc';
 import { connectLive, prepareLiveAudio } from '../src/lib/live';
 const opening = { title: '汤', titleEn: 'Soup', description: '香', descriptionEn: 'Tasty', imagePrompt: 'A warm bowl of soup', videoPrompt: 'Soup steams on the table' };
 beforeEach(() => {
- vi.useFakeTimers(); vi.clearAllMocks(); mocks.archived = false; mocks.close.mockResolvedValue(null);
+ vi.useFakeTimers(); vi.clearAllMocks(); mocks.archived = false; mocks.ended = false; mocks.close.mockResolvedValue(null);
  vi.stubGlobal('document', { removeEventListener: vi.fn() });
  vi.stubGlobal('window', { removeEventListener: vi.fn() });
  vi.stubGlobal('sessionStorage', { setItem: vi.fn(), getItem: () => null });
@@ -20,7 +20,7 @@ beforeEach(() => {
   if (url.endsWith('/image') || url.endsWith('/narration')) return new Response(new Blob(['media']));
   if (url.endsWith('/prepare')) return Response.json({ opening, imageUrl: '/image' });
   if (url.endsWith('/live')) return Response.json({ managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '/stream/index.m3u8', status: 'running' });
-  if (url === '/api/live/managed') return Response.json({ session: { managed: true, id: 'managed', expiresAt: Date.now() + 90000, status: mocks.archived ? 'ended' : 'running', recordingStatus: mocks.archived ? 'playable' : 'capturing', commands: [], ...(mocks.archived ? { creationId: 'saved-server' } : {}) } });
+  if (url === '/api/live/managed') return Response.json({ session: { managed: true, id: 'managed', expiresAt: Date.now() + 90000, status: mocks.archived || mocks.ended ? 'ended' : 'running', recordingStatus: mocks.archived ? 'playable' : 'capturing', commands: [], ...(mocks.archived ? { creationId: 'saved-server' } : {}) } });
   return Response.json({});
  }));
 });
@@ -77,4 +77,18 @@ it('does not report a missing browser recording when stopping an already archive
  await kitchen.stop();
  expect(kitchen.saveState.value).toBe('saved');
  expect(kitchen.error.value).not.toContain('浏览器未交付录像');
+});
+
+it('closes the viewer when generation ends, before the archive becomes playable', async () => {
+ const kitchen = await begin(); mocks.ended = true;
+ await vi.advanceTimersByTimeAsync(2100);
+ expect(mocks.close).toHaveBeenCalledTimes(1);
+ expect(kitchen.stage.value).toBe('stopped');
+ expect(kitchen.saveState.value).toBe('saving');
+ expect(connectManagedLive).toHaveBeenCalledTimes(1);
+ await vi.advanceTimersByTimeAsync(6000);
+ expect(connectManagedLive).toHaveBeenCalledTimes(1);
+ mocks.archived = true; await vi.advanceTimersByTimeAsync(2100);
+ expect(kitchen.saved.value).toBe(true);
+ expect(mocks.close).toHaveBeenCalledTimes(1);
 });

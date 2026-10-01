@@ -735,6 +735,13 @@ export function useKitchen() {
         pendingAudio = undefined;
       }
       if (session?.id !== id) return;
+      if (["ended", "stopping", "failed"].includes(data.session.status)) {
+        // The provider peer can close before archiving finishes. Retire this
+        // viewer immediately so its reconnect loop cannot join a stopped round.
+        const endedPlayer = player; player = null;
+        await endedPlayer?.close();
+      }
+      if (session?.id !== id) return;
       session.expiresAt = data.session.expiresAt;
       remaining.value = Math.max(0, Math.ceil((session.expiresAt - Date.now()) / 1000));
       if (data.session.creationId) {
