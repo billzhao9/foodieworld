@@ -8,7 +8,8 @@ vi.mock('../src/lib/managed-live', () => ({ connectManagedLive: vi.fn(async (opt
 }) }));
 vi.mock('../src/lib/storage', () => ({ listCreations: vi.fn().mockResolvedValue([]), getVideo: vi.fn(), getImage: vi.fn() }));
 import { useKitchen } from '../src/useKitchen';
-import { connectLive } from '../src/lib/live';
+import { connectManagedLive } from '../src/lib/managed-live';
+import { connectLive, prepareLiveAudio } from '../src/lib/live';
 const opening = { title: '汤', titleEn: 'Soup', description: '香', descriptionEn: 'Tasty', imagePrompt: 'A warm bowl of soup', videoPrompt: 'Soup steams on the table' };
 beforeEach(() => {
  vi.useFakeTimers(); vi.clearAllMocks(); mocks.archived = false; mocks.close.mockResolvedValue(null);
@@ -41,4 +42,21 @@ it('discovers the server archive without uploading or requiring a browser record
  expect(kitchen.saved.value).toBe(true);
  expect(kitchen.recordingDownloadUrl.value).toContain('/creations/saved-server/video');
  expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).includes('/creations') && init?.method === 'POST')).toBe(false);
+});
+
+it('waits for a queued admission before attaching a viewer and preserves the unlocked audio context', async () => {
+ const audio = { state: 'running', close: vi.fn() } as unknown as AudioContext;
+ vi.mocked(prepareLiveAudio).mockReturnValueOnce(audio);
+ const original = vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async (url, init) => {
+  if (String(url).endsWith('/live')) return Response.json({ managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '', status: 'queued' });
+  if (url === '/api/live/managed') return Response.json({ session: { managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '/stream/index.m3u8', status: 'running', recordingStatus: 'capturing', commands: [] } });
+  return original(url, init);
+ });
+ const kitchen = await begin();
+ expect(connectManagedLive).not.toHaveBeenCalled();
+ expect(audio.close).not.toHaveBeenCalled();
+ await vi.advanceTimersByTimeAsync(2100);
+ expect(connectManagedLive).toHaveBeenCalledWith(expect.objectContaining({ audioContext: audio, url: '/stream/index.m3u8' }));
+ expect(kitchen.stage.value).toBe('live');
 });

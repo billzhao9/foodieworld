@@ -60,6 +60,8 @@ type Command = {
 /** Browser is a viewer. Durable control and final files live in MML ONE. */
 export class ManagedSessions {
   private polling = false;
+  private connections = new Map<string, Promise<void>>();
+  private voices = new Map<string, Promise<void>>();
   private viewers = new Map<string, { url: string; expiresAt: number }>();
   readonly archive: MediaArchive;
   constructor(
@@ -195,6 +197,18 @@ export class ManagedSessions {
     }
   }
   private async connect(row: Row) {
+    const pending = this.connections.get(row.id);
+    if (pending) return pending;
+    const work = this.connectOnce(row).catch((error: unknown) => {
+      // Another process may still own the same idempotent admission. Never
+      // replace its request ID or interpret its pending result as failure.
+      if (error instanceof ApiError && error.status === 409 && error.code === "request_in_progress") return;
+      throw error;
+    }).finally(() => this.connections.delete(row.id));
+    this.connections.set(row.id, work);
+    return work;
+  }
+  private async connectOnce(row: Row) {
     if (row.upstream_id || !row.request_payload) return;
     // Even a requested stop must recover the original idempotent creation: the
     // server may have accepted it before its reply was lost.
@@ -238,7 +252,20 @@ export class ManagedSessions {
     if (dispatch) await this.dispatch(row, commandId);
   }
   private async prepareVoice(row: Row, command: Command) {
+    const key = `${row.id}:${command.command_id}`;
+    const pending = this.voices.get(key);
+    if (pending) return pending;
+    const work = this.prepareVoiceOnce(row, command).finally(() => this.voices.delete(key));
+    this.voices.set(key, work);
+    return work;
+  }
+  private async prepareVoiceOnce(row: Row, command: Command) {
     if (command.narration_asset_id) return;
+    const fresh = await this.db.pool.query<Command>(
+      "SELECT * FROM fw_managed_commands WHERE session_id=$1 AND command_id=$2",
+      [row.id, command.command_id],
+    );
+    if (fresh.rows[0]?.narration_asset_id) return;
     const audio = await this.narrations.get(
       row.craft_id,
       row.owner,

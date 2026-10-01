@@ -629,7 +629,9 @@ export function useKitchen() {
       const opened = await api<SessionReply>(`/crafts/${runCraftId}/live`, { language: locale.value });
       if (opened.managed) {
         if (run !== generation) return;
-        await attachManaged(opened, run);
+        await attachManaged(opened, run, preparedAudio);
+        audioTransferred = true;
+        if (opened.playbackUrl) pendingAudio = undefined;
         return;
       }
       connectionSchema.parse(opened.connection);
@@ -712,7 +714,7 @@ export function useKitchen() {
         preparedAudio.state !== "closed"
       )
         void preparedAudio.close().catch(() => undefined);
-      if (pendingAudio === preparedAudio) pendingAudio = undefined;
+      if (!audioTransferred && pendingAudio === preparedAudio) pendingAudio = undefined;
     }
   }
   type ManagedStatus = Extract<SessionReply, { managed: true }> & {
@@ -727,6 +729,11 @@ export function useKitchen() {
     const id = session.id;
     try {
       const data = await api<{ session: ManagedStatus }>(`/live/${id}`);
+      if (session?.id !== id) return;
+      if (!player && data.session.playbackUrl && !["ended", "failed", "stopping"].includes(data.session.status)) {
+        await attachManaged(data.session, generation, pendingAudio);
+        pendingAudio = undefined;
+      }
       if (session?.id !== id) return;
       session.expiresAt = data.session.expiresAt;
       remaining.value = Math.max(0, Math.ceil((session.expiresAt - Date.now()) / 1000));
@@ -749,13 +756,16 @@ export function useKitchen() {
     } catch { /* Viewing network loss does not stop the server-owned round. */ }
     finally { managedPolling = false; }
   }
-  async function attachManaged(opened: Extract<SessionReply, { managed: true }>, run: number) {
+  async function attachManaged(opened: Extract<SessionReply, { managed: true }>, run: number, audioContext?: AudioContext) {
     session = opened;
+    clearInterval(managedPoll);
+    managedPoll = setInterval(() => void pollManaged(), 2000);
+    if (!opened.playbackUrl) { pendingAudio = audioContext; return; }
     await nextTick();
     if (!videoElement.value) throw new RequestError("generic");
     let openingSpoken = false;
     const viewing = await connectManagedLive({
-      video: videoElement.value, url: opened.playbackUrl, muted: muted.value,
+      video: videoElement.value, url: opened.playbackUrl, muted: muted.value, audioContext,
       onPlaying: () => { if (run === generation && session?.id === opened.id) { hadPlayback = true; stage.value = "live"; statusCode.value = "managedBackground"; if (!openingSpoken) { openingSpoken = true; setTimeout(() => { if (session?.id === opened.id) void narrateCurrent(); }, 800); } } },
       onAudioBlocked: () => { audioBlocked.value = true; muted.value = true; },
       onError: () => { errorCode.value = "NETWORK"; },

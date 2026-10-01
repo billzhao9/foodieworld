@@ -120,3 +120,40 @@ it("cancels a pending end-of-snapshot reload when the viewer closes", async () =
   await vi.advanceTimersByTimeAsync(2500);
   expect(video.load).toHaveBeenCalledTimes(loads);
 });
+it("recovers a stalled snapshot without an ended event", async () => {
+  const { video, player } = await fixture();
+  video.currentTime = 12;
+  video.dispatchEvent(new Event("waiting"));
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(video.load).toHaveBeenCalledTimes(1);
+  video.metadata(40);
+  await Promise.resolve();
+  expect(video.currentTime).toBe(12);
+  await player.close();
+});
+it("ignores a delayed internal pause while refreshing a manifest", async () => {
+  const { video, player } = await fixture();
+  video.currentTime = 12;
+  video.dispatchEvent(new Event("error"));
+  await vi.advanceTimersByTimeAsync(2000);
+  video.metadata(40);
+  video.dispatchEvent(new Event("pause"));
+  video.dispatchEvent(new Event("error"));
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(video.load).toHaveBeenCalledTimes(2);
+  await player.close();
+});
+it("uses the user-unlocked audio context for Chinese narration and owns cleanup", async () => {
+  const source = { connect: vi.fn(), start: vi.fn(), stop: vi.fn(), disconnect: vi.fn(), buffer: null };
+  const gain = { connect: vi.fn(), disconnect: vi.fn(), gain: { value: 1 } };
+  const context = { state: "running", destination: {}, createGain: () => gain,
+    createBufferSource: () => source, decodeAudioData: vi.fn(async () => ({})), close: vi.fn(async () => {}) };
+  const video = new FakeVideo();
+  const player = await connectManagedLive({ video: video as unknown as HTMLVideoElement,
+    url: "/stream", muted: false, audioContext: context as unknown as AudioContext,
+    onPlaying: vi.fn(), onAudioBlocked: vi.fn(), onError: vi.fn() });
+  await player.speak(new ArrayBuffer(8));
+  expect(source.start).toHaveBeenCalledOnce();
+  player.setMuted(true); expect(gain.gain.value).toBe(0);
+  await player.close(); expect(context.close).toHaveBeenCalledOnce();
+});

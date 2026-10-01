@@ -1,10 +1,11 @@
 import type HlsInstance from "hls.js";
-import type { LivePlayer } from "./live";
+import { prepareLiveAudio, type LivePlayer } from "./live";
 /** Viewer transport only: closing this player never sends a generation stop. */
 export async function connectManagedLive(args: {
   video: HTMLVideoElement;
   url: string;
   muted: boolean;
+  audioContext?: AudioContext;
   onPlaying: () => void;
   onAudioBlocked: () => void;
   onError: () => void;
@@ -15,8 +16,12 @@ export async function connectManagedLive(args: {
   let reconnect: ReturnType<typeof setTimeout> | undefined;
   let removeNativeListeners: (() => void) | undefined;
   let userPaused = false;
-  let speech: HTMLAudioElement | undefined;
-  let speechUrl: string | undefined;
+  const context = args.audioContext ?? prepareLiveAudio();
+  const gain = context?.createGain();
+  gain?.connect(context!.destination);
+  if (gain) gain.gain.value = args.muted ? 0 : 1;
+  let speech: AudioBufferSourceNode | undefined;
+  let speechSequence = 0;
   let soundMuted = args.muted;
   video.srcObject = null;
   video.muted = soundMuted;
@@ -39,6 +44,7 @@ export async function connectManagedLive(args: {
     let resumeAt: number | undefined;
     let retries = 0;
     let ignoreLoadPause = false;
+    let stall: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => {
       if (closed || userPaused || reconnect !== undefined) return;
       if (retries >= 60) {
@@ -69,7 +75,6 @@ export async function connectManagedLive(args: {
       schedule();
     };
     const metadata = () => {
-      ignoreLoadPause = false;
       if (closed || userPaused) return;
       if (resumeAt !== undefined) {
         const end = Number.isFinite(video.duration)
@@ -93,14 +98,19 @@ export async function connectManagedLive(args: {
       void play();
     };
     const paused = () => {
-      if (ignoreLoadPause) {
-        ignoreLoadPause = false;
-        return;
-      }
+      if (ignoreLoadPause) return;
       if (closed || video.ended) return;
       userPaused = true;
       clearTimeout(reconnect);
       reconnect = undefined;
+    };
+    const progressed = () => {
+      ignoreLoadPause = false;
+      clearTimeout(stall);
+    };
+    const stalled = () => {
+      clearTimeout(stall);
+      stall = setTimeout(() => { if (!userPaused && !closed) retry(); }, 6000);
     };
     const unpaused = () => {
       userPaused = false;
@@ -109,12 +119,19 @@ export async function connectManagedLive(args: {
       resumeAt = undefined;
       retries = 0;
     };
+    video.addEventListener("timeupdate", progressed);
+    video.addEventListener("waiting", stalled);
+    video.addEventListener("stalled", stalled);
     video.addEventListener("error", retry);
     video.addEventListener("ended", ended);
     video.addEventListener("loadedmetadata", metadata);
     video.addEventListener("pause", paused);
     video.addEventListener("play", unpaused);
     removeNativeListeners = () => {
+      clearTimeout(stall);
+      video.removeEventListener("timeupdate", progressed);
+      video.removeEventListener("waiting", stalled);
+      video.removeEventListener("stalled", stalled);
       video.removeEventListener("error", retry);
       video.removeEventListener("ended", ended);
       video.removeEventListener("loadedmetadata", metadata);
@@ -144,10 +161,10 @@ export async function connectManagedLive(args: {
     hls.attachMedia(video);
   }
   function stopSpeech() {
-    speech?.pause();
+    speechSequence++;
+    try { speech?.stop(); } catch { /* The previous buffer may have ended. */ }
+    speech?.disconnect();
     speech = undefined;
-    if (speechUrl) URL.revokeObjectURL(speechUrl);
-    speechUrl = undefined;
   }
   return {
     // Managed commands are delivered by the authenticated backend, never the viewer.
@@ -156,27 +173,38 @@ export async function connectManagedLive(args: {
     setMuted(value) {
       soundMuted = value;
       video.muted = value;
-      if (speech) speech.muted = value;
+      if (gain) gain.gain.value = value ? 0 : 1;
     },
     async resumeAudio() {
+      if (context?.state === "suspended") await context.resume();
       video.muted = soundMuted;
       await video.play();
     },
     async speak(bytes) {
       stopSpeech();
       if (closed) return;
-      speechUrl = URL.createObjectURL(
-        new Blob([bytes], { type: "audio/mpeg" }),
-      );
-      speech = new Audio(speechUrl);
-      speech.muted = soundMuted;
-      await speech.play();
+      if (!context || !gain) throw new Error("NARRATION_UNAVAILABLE");
+      const sequence = speechSequence;
+      const buffer = await context.decodeAudioData(bytes.slice(0));
+      if (closed || sequence !== speechSequence) return;
+      if (context.state !== "running") {
+        // Recovery after navigation may require a fresh user gesture. This is
+        // playback permission, not a failed synthesis request.
+        args.onAudioBlocked();
+        return;
+      }
+      speech = context.createBufferSource();
+      speech.buffer = buffer;
+      speech.connect(gain);
+      speech.start();
     },
     stopSpeech,
     async close() {
       closed = true;
       clearTimeout(reconnect);
       stopSpeech();
+      gain?.disconnect();
+      if (context && context.state !== "closed") await context.close().catch(() => {});
       hls?.destroy();
       removeNativeListeners?.();
       video.removeEventListener("playing", playing);

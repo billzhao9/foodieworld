@@ -81,7 +81,7 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
     };
     const upstream = vi
       .fn()
-      .mockImplementation(async (path: string) =>
+      .mockImplementation(async (path: string, _body?: unknown) =>
         path === "/live-sessions"
           ? {
               managed: true,
@@ -137,6 +137,25 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
       },
     };
   }
+  it("keeps an in-progress admission recoverable with the same immutable request", async () => {
+    const f = await fixture();
+    const original = f.upstream.getMockImplementation()!;
+    let pending = true;
+    f.upstream.mockImplementation(async (path: string) => {
+      if (path === "/live-sessions" && pending) throw new ApiError("request_in_progress", 409);
+      return original(path);
+    });
+    const opened = await f.managed.start(f.craftId, "owner", "zh");
+    expect(opened.status).toBe("queued");
+    expect(opened.playbackUrl).toBe("");
+    const firstPayload = f.upstream.mock.calls.find(([path]) => path === "/live-sessions")?.[1];
+    pending = false;
+    const result = await f.managed.status(opened.id, "owner");
+    expect(result.session.status).toBe("running");
+    for (const [path, body] of f.upstream.mock.calls) {
+      if (path === "/live-sessions") expect(body).toEqual(firstPayload);
+    }
+  });
   it("survives absent browser heartbeats and saves a published final without browser upload", async () => {
     const f = await fixture(),
       session = await f.managed.start(f.craftId, "owner", "zh");

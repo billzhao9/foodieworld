@@ -10,6 +10,7 @@ export class ApiError extends Error {
 }
 // Only documented, user-actionable codes may cross the upstream trust boundary.
 const publicUpstreamCodes = new Set([
+  "request_in_progress",
   "RATE_LIMITED",
   "rate_limited",
   "INSUFFICIENT_BALANCE",
