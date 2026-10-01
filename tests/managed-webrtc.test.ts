@@ -19,6 +19,8 @@ class Stream {
 }
 class Video extends EventTarget {
   srcObject: unknown = null; videoWidth = 1920; readyState = 4; controls = false;
+  paused = false; visible = true;
+  getClientRects() { return this.visible ? [{}] : []; }
   play = vi.fn(async () => {}); pause = vi.fn(); load = vi.fn();
 }
 let doc: EventTarget & { hidden: boolean };
@@ -77,4 +79,14 @@ it('never retries beyond the paid deadline', async () => {
  clients[0].peer.connectionState = 'failed'; clients[0].peer.dispatchEvent(new Event('connectionstatechange'));
  await vi.advanceTimersByTimeAsync(10000);
  expect(getConnection).toHaveBeenCalledTimes(1); await player.close();
+});
+
+it('resumes a video paused by hiding an in-app tab without reconnecting or loading', async () => {
+ const { player, video, getConnection } = await fixture();
+ video.play.mockClear(); video.visible = false; video.paused = true;
+ video.dispatchEvent(new Event('pause')); await vi.advanceTimersByTimeAsync(2000);
+ expect(video.play).not.toHaveBeenCalled();
+ video.visible = true; await vi.advanceTimersByTimeAsync(1000);
+ expect(video.play).toHaveBeenCalledTimes(1); expect(getConnection).toHaveBeenCalledTimes(1);
+ expect(video.load).not.toHaveBeenCalled(); await player.close();
 });

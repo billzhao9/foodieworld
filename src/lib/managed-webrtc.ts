@@ -121,7 +121,12 @@ export async function connectManagedLive(args: {
       clearTimeout(retry); retry = undefined; void connect();
     } else void play();
   };
-  const paused = () => { if (!document.hidden && !video.controls) void play(); };
+  const paused = () => {
+    if (!closed && !document.hidden && !video.controls && video.getClientRects().length) void play();
+  };
+  // Safari can pause a video hidden by an in-app tab without a visibility event.
+  // Resume its existing peer when the mounted player becomes visible again.
+  const resumeTimer = setInterval(() => { if (video.paused) paused(); }, 1000);
   video.addEventListener("playing", playing);
   video.addEventListener("pause", paused);
   document.addEventListener("visibilitychange", resume);
@@ -158,7 +163,7 @@ export async function connectManagedLive(args: {
     async close() {
       if (closed) return null;
       closed = true;
-      clearTimeout(retry); disposeTransport(); stopSpeech();
+      clearTimeout(retry); clearInterval(resumeTimer); disposeTransport(); stopSpeech();
       video.removeEventListener("playing", playing);
       video.removeEventListener("pause", paused);
       document.removeEventListener("visibilitychange", resume);
