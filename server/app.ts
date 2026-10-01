@@ -19,7 +19,7 @@ import { ApiError, makeUpstream, type Upstream } from "./upstream";
 import { Crafts } from "./crafts";
 import { LiveSessions } from "./live";
 import { mediaResponse } from "./media";
-import { finalizeRecording, exportMp4 } from "./recording";
+import { exportMp4 } from "./recording";
 const uuid = z.string().uuid();
 const metaSchema = z.object({
   id: uuid,
@@ -139,7 +139,7 @@ export function createApp(
   app.get("/api/shared/:token", async (c) => {
     const token = shareToken.parse(c.req.param("token"));
     const r = await db.pool.query(
-      "SELECT meta, video IS NOT NULL AS has_video FROM fw_creations WHERE share_token=$1",
+      "SELECT meta, video_status, video IS NOT NULL AS has_video FROM fw_creations WHERE share_token=$1",
       [token],
     );
     if (!r.rows[0]) throw new ApiError("NOT_FOUND", 404);
@@ -148,6 +148,7 @@ export function createApp(
       ...metaSchema.parse(r.rows[0].meta),
       imageUrl: `/api/shared/${token}/cover`,
       hasVideo: r.rows[0].has_video === true,
+      videoStatus: r.rows[0].video_status,
     });
   });
   app.get("/api/shared/:token/:media", async (c) => {
@@ -331,7 +332,7 @@ export function createApp(
   });
   app.get("/api/creations", async (c) => {
     const r = await db.pool.query(
-      `SELECT c.id,c.meta,c.video IS NOT NULL AS has_video,
+      `SELECT c.id,c.meta,c.video_status,c.video IS NOT NULL AS has_video,
         (SELECT count(*)::int FROM fw_creation_likes l WHERE l.creation_id=c.id) AS like_count,
         EXISTS(SELECT 1 FROM fw_creation_likes l WHERE l.creation_id=c.id AND l.visitor=$1) AS liked
        FROM fw_creations c ORDER BY c.created_at DESC LIMIT 100`,
@@ -342,6 +343,7 @@ export function createApp(
         ...metaSchema.parse(r.meta),
         imageUrl: `/api/creations/${r.id}/cover`,
         hasVideo: r.has_video === true,
+        videoStatus: r.video_status,
         likeCount: Number(r.like_count),
         liked: r.liked === true,
       })),
@@ -381,25 +383,24 @@ export function createApp(
         video.size > 60 * 1024 * 1024)
     )
       throw new ApiError("INVALID_VIDEO", 400);
+    const videoData = video instanceof File ? Buffer.from(await video.arrayBuffer()) : null;
+    const videoStatus = videoData ? "pending" : "ready";
     await db.pool.query(
-      "INSERT INTO fw_creations(id,meta,image,image_type,video,video_type,cover,cover_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO NOTHING",
+      "INSERT INTO fw_creations(id,meta,image,image_type,video,video_type,cover,cover_type,video_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(id) DO NOTHING",
       [
         meta.id,
         JSON.stringify(meta),
         Buffer.from(await image.arrayBuffer()),
         image.type,
-        video instanceof File
-          ? await finalizeRecording(
-              Buffer.from(await video.arrayBuffer()),
-              video.type,
-            )
-          : null,
+        videoData,
         video instanceof File ? video.type : null,
         cover instanceof File ? Buffer.from(await cover.arrayBuffer()) : null,
         cover instanceof File ? cover.type : null,
+        videoStatus,
       ],
     );
-    return c.json({ ok: true, id: meta.id });
+    const stored = await db.pool.query("SELECT video_status FROM fw_creations WHERE id=$1", [meta.id]);
+    return c.json({ ok: true, id: meta.id, videoStatus: stored.rows[0].video_status });
   });
   app.post("/api/creations/:id/share", async (c) => {
     const id = uuid.parse(c.req.param("id"));

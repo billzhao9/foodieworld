@@ -103,6 +103,8 @@ onUnmounted(() => controller.abort());
           :alt="l(item.title, item.titleEn || item.title)"
         />
       </div>
+      <p v-if="item.videoStatus === 'pending' || item.videoStatus === 'processing'" role="status">{{ l('录像已保存，正在优化播放；如果暂时无法播放，请稍后刷新。', 'Recording saved. Playback is being optimized; refresh shortly if preview does not play.') }}</p>
+      <p v-else-if="item.videoStatus === 'failed'" role="status">{{ l('原录像已保存，兼容处理未完成。', 'Original recording saved. Playback optimization incomplete.') }}</p>
       <VideoExport v-if="item.hasVideo" :src="videoUrl" :title="l(item.title, item.titleEn || item.title)" />
       <div class="shared-caption">
         <Film v-if="item.hasVideo" :size="14" /><Heart v-else :size="14" />{{

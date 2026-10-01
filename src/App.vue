@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, nextTick } from "vue";
 import { animals as animalCatalog } from "../shared/animals";
 import { combinations } from "../shared/combinations";
 import { cookware } from "../shared/cookware";
@@ -97,6 +97,13 @@ const {
   updateCreationLike,
   recordingDownloadUrl,
 } = useKitchen();
+async function previewLocalRecording() {
+  page.value = "lab";
+  // Playback is requested in the tap gesture; scrolling waits for the view update.
+  void videoElement.value?.play().catch(() => {});
+  await nextTick();
+  videoElement.value?.scrollIntoView({block: "center", behavior: "smooth"});
+}
 const pantryPanel = ref<HTMLElement>();
 function showPantry() {
   pantryPanel.value?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
@@ -397,7 +404,7 @@ async function addCustom() {
         <LoaderCircle v-if="saveState === 'saving'" class="spin" :size="18" />
         <Check v-else-if="saveState === 'saved'" :size="18" />
         <span>{{ saveState === 'saving'
-          ? l('正在自动保存录像，请稍候…', 'Automatically saving your video…')
+          ? recordingUrl ? l('录像已录好，正在上传。可以先播放。', 'Recording ready. Uploading — you can watch now.') : l('正在收尾录像…', 'Finishing the recording…')
           : saveState === 'pending'
             ? l(`本机保留了 ${pendingSaveCount} 个待上传作品，将自动重试；仍未上传可点重试。`, `${pendingSaveCount} creations are kept on this device. Upload retries automatically; you can also retry below.`)
             : saveState === 'missing'
@@ -405,6 +412,7 @@ async function addCustom() {
             : saveState === 'failed'
               ? l('上传失败，本机备份也未成功。请保持此页打开并重试，或下载录像。', 'Upload and local backup failed. Keep this page open and retry, or download your recording.')
               : l('作品已保存到共享画廊', 'Creation saved to the shared gallery') }}</span>
+        <button v-if="recordingUrl && ['saving', 'pending', 'failed'].includes(saveState)" @click="previewLocalRecording">{{ l('先看录像', 'Watch now') }}</button>
         <button v-if="saveState === 'pending' || saveState === 'failed'" @click="retrySaving(true)">
           {{ l('重试上传', 'Retry upload') }}
         </button>

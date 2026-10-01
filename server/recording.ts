@@ -25,6 +25,16 @@ export function fragmentedMp4(data: Buffer): boolean {
   }
   return false;
 }
+interface VideoInfo { streams: {codec_type: string; codec_name: string; pix_fmt?: string; start_time?: string; profile?: string; level?: number; width?: number; height?: number; sample_rate?: string; channels?: number}[]; format: {start_time?: string; duration?: string} }
+async function inspectVideo(path: string): Promise<VideoInfo> {
+  const result = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration,start_time:stream=codec_type,codec_name,pix_fmt,start_time,profile,level,width,height,sample_rate,channels", "-of", "json", path], {timeout: 10000, maxBuffer: 128 * 1024});
+  return JSON.parse(result.stdout);
+}
+function copyCompatible(info: VideoInfo): boolean {
+  const video = info.streams.find(s => s.codec_type === "video");
+  const audio = info.streams.filter(s => s.codec_type === "audio");
+  return video?.codec_name === "h264" && video.pix_fmt === "yuv420p" && ["Constrained Baseline", "Baseline", "Main", "High"].includes(video.profile || "") && (video.level || 999) <= 41 && (video.width || 9999) <= 1920 && (video.height || 9999) <= 1080 && Number(video.start_time) >= 0 && Number(video.start_time) < 0.15 && audio.every(s => s.codec_name === "aac" && ["44100", "48000"].includes(s.sample_rate || "") && (s.channels || 99) <= 2 && Number(s.start_time) >= 0 && Number(s.start_time) < 0.15) && Number(info.format.duration) > 0;
+}
 export async function finalizeRecording(
   data: Buffer,
   type: string,
@@ -48,6 +58,22 @@ export async function finalizeRecording(
     const input = join(directory, "input.mp4"),
       output = join(directory, "output.mp4");
     await writeFile(input, data, { mode: 0o600 });
+    // Safari already records H.264/AAC. Repackage it losslessly when its timeline is sound.
+    // The slower encode remains a fallback for incompatible codecs or timing.
+    try {
+      const source = await inspectVideo(input);
+      if (copyCompatible(source)) {
+        await run("ffmpeg", ["-nostdin", "-v", "error", "-i", input, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", output], {timeout: 20000, maxBuffer: 128 * 1024});
+        const result = await inspectVideo(output);
+        const first = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1", "-show_entries", "packet=pts_time,flags", "-of", "json", output], {timeout: 10000, maxBuffer: 128 * 1024});
+        const packet = JSON.parse(first.stdout).packets?.[0];
+        if (copyCompatible(result) && Math.abs(Number(result.format.duration) - Number(source.format.duration)) < 0.25 && packet?.flags?.includes("K") && Number(packet.pts_time) >= 0 && Number(packet.pts_time) < 0.15) {
+          const copied = await readFile(output);
+          if (!fragmentedMp4(copied) && copied.indexOf(Buffer.from("moov")) > 0 && copied.indexOf(Buffer.from("moov")) < copied.indexOf(Buffer.from("mdat"))) return copied;
+        }
+      }
+    } catch { /* Retain the original and use the established compatibility encode. */ }
+    await rm(output, {force: true});
     // Normalize browser-dependent timing/codec output for mobile playback.
     // Keep the original privately; do not regenerate any AI scene.
     await run(

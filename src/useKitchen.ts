@@ -1099,6 +1099,7 @@ export function useKitchen() {
     }
   };
   let galleryPoll: ReturnType<typeof setInterval> | undefined;
+  let processingPoll: ReturnType<typeof setInterval> | undefined;
   onMounted(async () => {
     if (new URL(window.location.href).searchParams.has("share")) return;
     recordingSupported.value = canRecord();
@@ -1119,6 +1120,9 @@ export function useKitchen() {
         if (galleryVisible()) void refresh();
       }
     }, 30_000);
+    processingPoll = setInterval(() => {
+      if (!document.hidden && galleryVisible() && favorites.value.some(item => item.videoStatus === "pending" || item.videoStatus === "processing")) void refresh();
+    }, 3000);
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", leave);
     window.addEventListener("online", retrySaves);
@@ -1126,6 +1130,7 @@ export function useKitchen() {
   });
   onUnmounted(() => {
     clearInterval(galleryPoll);
+    clearInterval(processingPoll);
     document.removeEventListener("visibilitychange", hidden);
     window.removeEventListener("pagehide", leave);
     window.removeEventListener("online", retrySaves);

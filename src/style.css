@@ -3085,3 +3085,5 @@ html, body { overscroll-behavior-y: none; }
   .main-nav button { flex: 1; justify-content: center; gap: 5px; padding-inline: 4px; white-space: nowrap; }
   .main-nav .nav-star { display: none; }
 }
+
+.dish-info .processing-note { color: var(--yellow); font-size: 12px; line-height: 1.5; margin-block: 10px; }

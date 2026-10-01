@@ -27,7 +27,7 @@ async function toggleLike() {
       <ReplayPlayer
         ref="replay"
         v-if="item.hasVideo"
-        :src="`/api/creations/${encodeURIComponent(item.id)}/video`"
+        :src="`/api/creations/${encodeURIComponent(item.id)}/video?version=${item.videoStatus || 'ready'}`"
         :poster="item.imageUrl"
         :title="l(item.title, item.titleEn || item.title)"
       />
@@ -47,6 +47,8 @@ async function toggleLike() {
     <div class="dish-info">
       <h2>{{ l(item.title, item.titleEn || item.title) }}</h2>
       <p>{{ l(item.description, item.descriptionEn || item.description) }}</p>
+      <p v-if="item.videoStatus === 'pending' || item.videoStatus === 'processing'" class="processing-note" role="status">{{ l('已保存 · 正在优化播放，可先预览', 'Saved · Optimizing playback. Preview available') }}</p>
+      <p v-else-if="item.videoStatus === 'failed'" class="processing-note">{{ l('原录像已保存，兼容处理未完成', 'Original saved. Playback optimization incomplete') }}</p>
       <AnimalRoster :ids="item.animals" compact />
       <button class="creation-like" :class="{ liked: item.liked }" :aria-pressed="!!item.liked" :disabled="liking" :title="item.liked ? l('取消点赞', 'Unlike') : l('喜欢这道料理？点个赞', 'Like this creation')" @click="toggleLike">
         <Heart :size="18" :fill="item.liked ? 'currentColor' : 'none'" />

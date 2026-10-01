@@ -1,3 +1,4 @@
+import { RecordingWorker } from "../server/recording-worker";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import {
   beforeAll,
@@ -102,6 +103,56 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
     expect(await (await like(a, false)).json()).toEqual({liked:false,likeCount:1});
     const result = await app.request(`/api/creations/${randomUUID()}/like`, {method:"PUT",headers:{cookie:a,"Content-Type":"application/json"},body:JSON.stringify({liked:true})});
     expect(result.status).toBe(404);
+  });
+  it("acknowledges the durable original before any compatibility processing", async () => {
+    const {app} = createApp(config, db, vi.fn());
+    const cookie = await auth(app), id = randomUUID();
+    const form = new FormData();
+    form.append("meta", JSON.stringify({id,dishId:"custom",title:"Rice",description:"test",ingredients:[],createdAt:Date.now()}));
+    form.append("image", new Blob(["image"], {type:"image/png"}), "image.png");
+    // Deliberately invalid media: upload must not call ffmpeg or wait for it.
+    form.append("video", new Blob(["original-recording"], {type:"video/mp4"}), "video.mp4");
+    const save = await app.request("/api/creations", {method:"POST",headers:{cookie},body:form});
+    expect(save.status).toBe(200);
+    expect(await save.json()).toMatchObject({id,videoStatus:"pending"});
+    const media = await app.request(`/api/creations/${id}/video`, {headers:{cookie}});
+    expect(await media.text()).toBe("original-recording");
+    const duplicate = await app.request("/api/creations", {method:"POST",headers:{cookie},body:form});
+    expect(await duplicate.json()).toMatchObject({videoStatus:"pending"});
+    expect((await db.pool.query("SELECT video_attempts FROM fw_creations WHERE id=$1",[id])).rows[0].video_attempts).toBe(0);
+  });
+  it("leases background work exclusively and fences a stale worker after recovery", async () => {
+    const id = randomUUID();
+    await db.pool.query("INSERT INTO fw_creations(id,meta,image,image_type,video,video_type,video_status) VALUES($1,'{}',$2,'image/png',$3,'video/mp4','pending')", [id,Buffer.from("i"),Buffer.from("original")]);
+    let finish!: (b: Buffer) => void;
+    const normalize = vi.fn().mockImplementation(() => new Promise<Buffer>(r => {finish=r;}));
+    const first = new RecordingWorker(db, normalize);
+    const running = first.tick();
+    await vi.waitFor(() => expect(normalize).toHaveBeenCalledOnce());
+    const nextNormalize = vi.fn().mockResolvedValue(Buffer.from("recovered"));
+    const second = new RecordingWorker(db, nextNormalize);
+    await second.tick();
+    expect(nextNormalize).not.toHaveBeenCalled();
+    await db.pool.query("UPDATE fw_creations SET video_lease_until=now()-interval '1 second' WHERE id=$1",[id]);
+    await second.tick();
+    finish(Buffer.from("stale"));
+    await running;
+    const row=(await db.pool.query("SELECT video,video_status,video_attempts FROM fw_creations WHERE id=$1",[id])).rows[0];
+    expect(row.video.toString()).toBe("recovered");
+    expect(row.video_status).toBe("ready");
+    expect(row.video_attempts).toBe(2);
+  });
+  it("retains the original through bounded worker retries and honors backoff", async () => {
+    const id=randomUUID();
+    await db.pool.query("INSERT INTO fw_creations(id,meta,image,image_type,video,video_type,video_status) VALUES($1,'{}',$2,'image/png',$3,'video/mp4','pending')",[id,Buffer.from("i"),Buffer.from("original")]);
+    const normalize=vi.fn().mockRejectedValue(new Error("encoder failed"));
+    const worker=new RecordingWorker(db,normalize);
+    await worker.tick(); await worker.tick();
+    expect(normalize).toHaveBeenCalledOnce();
+    for(let n=0;n<2;n++) {await db.pool.query("UPDATE fw_creations SET video_retry_at=now()-interval '1 second' WHERE id=$1",[id]);await worker.tick();}
+    await worker.tick();
+    const row=(await db.pool.query("SELECT video,video_status,video_attempts FROM fw_creations WHERE id=$1",[id])).rows[0];
+    expect(row.video.toString()).toBe("original");expect(row.video_status).toBe("failed");expect(row.video_attempts).toBe(3);
   });
   it("preserves large baskets across creation, retries, reload and metadata storage", async () => {
     const upstream = vi.fn();

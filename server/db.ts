@@ -20,6 +20,12 @@ export class Database {
  ALTER TABLE fw_live ADD COLUMN IF NOT EXISTS scope text NOT NULL DEFAULT 'development';
  ALTER TABLE fw_live ADD COLUMN IF NOT EXISTS stop_requested boolean NOT NULL DEFAULT false;
  CREATE TABLE IF NOT EXISTS fw_creations (id text PRIMARY KEY,meta jsonb NOT NULL,image bytea NOT NULL,image_type text NOT NULL,video bytea,video_type text,created_at timestamptz NOT NULL DEFAULT now());
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS video_status text NOT NULL DEFAULT 'ready';
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS video_claim text;
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS video_attempts integer NOT NULL DEFAULT 0;
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS video_lease_until timestamptz;
+ ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS video_retry_at timestamptz;
+ CREATE INDEX IF NOT EXISTS fw_creations_video_queue ON fw_creations(video_status,created_at) WHERE video_status IN ('pending','processing');
  ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS cover bytea;
  ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS cover_type text;
  ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS share_token text;

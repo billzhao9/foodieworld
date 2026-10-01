@@ -49,6 +49,7 @@ export interface SavedCreation {
   createdAt: number;
   imageUrl: string;
   hasVideo: boolean;
+  videoStatus?: "pending" | "processing" | "ready" | "failed";
   likeCount?: number;
   liked?: boolean;
 }

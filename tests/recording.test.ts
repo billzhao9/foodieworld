@@ -86,3 +86,19 @@ it.skipIf(!ffmpegAvailable)("exports WebM as a cached Photos-compatible H.264 MP
     expect(fragmentedMp4(result)).toBe(false);
   } finally { await rm(directory, {recursive: true, force: true}); }
 });
+
+it.skipIf(!ffmpegAvailable)("losslessly repackages compatible H.264 without resizing or re-encoding", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fw-copy-test-"));
+  try {
+    const input=join(directory,"input.mp4");
+    execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=c=green:s=64x64:r=10","-t","0.5","-c:v","libx264","-pix_fmt","yuv420p","-bf","0","-movflags","frag_keyframe+empty_moov",input]);
+    const source=await readFile(input);
+    const result=await finalizeRecording(source,"video/mp4");
+    const output=join(directory,"output.mp4");
+    await (await import("node:fs/promises")).writeFile(output,result);
+    const stream=JSON.parse(execFileSync("ffprobe",["-v","error","-show_entries","stream=codec_name,width,height","-of","json",output]).toString()).streams[0];
+    expect(stream).toMatchObject({codec_name:"h264",width:64,height:64});
+    expect(fragmentedMp4(result)).toBe(false);
+    expect(result.indexOf(Buffer.from("moov"))).toBeLessThan(result.indexOf(Buffer.from("mdat")));
+  } finally {await rm(directory,{recursive:true,force:true});}
+});
