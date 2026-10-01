@@ -28,8 +28,13 @@ export async function connectManagedLive(args: {
   const play = async () => {
     try {
       await video.play();
-    } catch {
+    } catch (error) {
       if (closed || userPaused) return;
+      // A not-yet-ready playlist can reject play too. Only a real autoplay
+      // permission denial should ask the visitor to enable sound again.
+      if (!(error instanceof Error) || error.name !== "NotAllowedError") return;
+      soundMuted = true;
+      if (gain) gain.gain.value = 0;
       video.muted = true;
       args.onAudioBlocked();
       await video.play().catch(() => undefined);

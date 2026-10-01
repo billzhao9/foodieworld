@@ -159,3 +159,16 @@ it("uses the user-unlocked audio context for Chinese narration and owns cleanup"
   player.setMuted(true); expect(gain.gain.value).toBe(0);
   await player.close(); expect(context.close).toHaveBeenCalledOnce();
 });
+
+it("does not mislabel an initial unavailable playlist as an audio permission denial", async () => {
+  const video = new FakeVideo(), onAudioBlocked = vi.fn();
+  video.play.mockRejectedValueOnce(Object.assign(new Error("Not ready"), { name: "NotSupportedError" }));
+  const player = await connectManagedLive({ video: video as unknown as HTMLVideoElement,
+    url: "/stream", muted: false, onPlaying: vi.fn(), onAudioBlocked, onError: vi.fn() });
+  await Promise.resolve();
+  expect(onAudioBlocked).not.toHaveBeenCalled();
+  video.metadata();
+  await Promise.resolve();
+  expect(video.paused).toBe(false);
+  await player.close();
+});
