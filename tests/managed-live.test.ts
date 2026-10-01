@@ -156,6 +156,20 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
       if (path === "/live-sessions") expect(body).toEqual(firstPayload);
     }
   });
+  it("does not submit an addition after narration preparation crosses the round deadline", async () => {
+    const f = await fixture();
+    const session = await f.managed.start(f.craftId, "owner", "zh");
+    f.save.mockImplementation(async (input) => {
+      if (input.kind === "audio") await db.pool.query(
+        "UPDATE fw_managed_sessions SET state=jsonb_set(state,'{deadline}',to_jsonb($1::bigint)) WHERE id=$2",
+        [Date.now() - 1, session.id],
+      );
+      return `asset-${input.kind}`;
+    });
+    // Reuse an existing opening narration so this tests the network boundary.
+    await expect(f.managed.queue(session.id, "owner", "opening", "Add cheese", "zh")).rejects.toMatchObject({ code: "SESSION_ENDED" });
+    expect(f.upstream.mock.calls.some(([path]) => path.endsWith("/commands"))).toBe(false);
+  });
   it("survives absent browser heartbeats and saves a published final without browser upload", async () => {
     const f = await fixture(),
       session = await f.managed.start(f.craftId, "owner", "zh");

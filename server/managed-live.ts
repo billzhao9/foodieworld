@@ -302,6 +302,12 @@ export class ManagedSessions {
           [row.id, command.command_id],
         )
       ).rows[0];
+      const current = await this.owned(row.id, row.owner);
+      if (current.stop_requested || ["ended", "failed", "stopping"].includes(String(current.state.status)) ||
+          (typeof current.state.deadline === "number" && current.state.deadline <= Date.now())) {
+        await this.db.pool.query("UPDATE fw_managed_commands SET state='cancelled' WHERE session_id=$1 AND command_id=$2", [row.id, command.command_id]);
+        throw new ApiError("SESSION_ENDED", 409);
+      }
       await this.upstream(
         `/managed-live-sessions/${encodeURIComponent(row.upstream_id)}/commands`,
         {

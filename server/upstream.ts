@@ -60,7 +60,7 @@ export function makeUpstream(config: Config): Upstream {
           ? value.data.error
           : value.data.error.code
         : "UPSTREAM_ERROR";
-      throw new ApiError(sanitizeUpstreamCode(code), res.status);
+      throw new ApiError(code === "session_closed" ? "SESSION_ENDED" : sanitizeUpstreamCode(code), res.status);
     }
     return data;
   };
