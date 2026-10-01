@@ -1,0 +1,122 @@
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { connectManagedLive } from "../src/lib/managed-live";
+class FakeVideo extends EventTarget {
+  src = "";
+  srcObject: unknown = null;
+  muted = false;
+  paused = true;
+  ended = false;
+  currentTime = 0;
+  duration = 16.02;
+  seekable = { length: 0, end: () => 0 };
+  canPlayType() {
+    return "probably";
+  }
+  play = vi.fn(async () => {
+    this.paused = false;
+    this.ended = false;
+    this.dispatchEvent(new Event("play"));
+  });
+  pause = vi.fn(() => {
+    this.paused = true;
+    this.dispatchEvent(new Event("pause"));
+  });
+  load = vi.fn(() => {
+    const wasPlaying = !this.paused;
+    this.currentTime = 0;
+    this.ended = false;
+    this.paused = true;
+    if (wasPlaying) this.dispatchEvent(new Event("pause"));
+  });
+  removeAttribute(name: string) {
+    if (name === "src") this.src = "";
+  }
+  metadata(duration = this.duration) {
+    this.duration = duration;
+    this.dispatchEvent(new Event("loadedmetadata"));
+  }
+  finish() {
+    this.currentTime = this.duration;
+    this.ended = true;
+    this.paused = true;
+    this.dispatchEvent(new Event("pause"));
+    this.dispatchEvent(new Event("ended"));
+  }
+}
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+async function fixture() {
+  const video = new FakeVideo(),
+    onError = vi.fn();
+  const player = await connectManagedLive({
+    video: video as unknown as HTMLVideoElement,
+    url: "/api/live/id/stream/index.m3u8",
+    muted: true,
+    onPlaying: vi.fn(),
+    onAudioBlocked: vi.fn(),
+    onError,
+  });
+  video.metadata();
+  await Promise.resolve();
+  return { video, player, onError };
+}
+it("waits at a finite Safari snapshot boundary and resumes the growing manifest at the watched timestamp", async () => {
+  const { video, player } = await fixture();
+  video.finish();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(video.load).toHaveBeenCalledTimes(1);
+  video.metadata(16.02);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(video.play).toHaveBeenCalledTimes(1);
+  expect(video.load).toHaveBeenCalledTimes(2);
+  video.metadata(64);
+  await Promise.resolve();
+  expect(video.currentTime).toBe(16.02);
+  expect(video.play).toHaveBeenCalledTimes(2);
+  await player.close();
+});
+it("does not resume or reload after a user pause, and user playback can continue normally", async () => {
+  const { video, player } = await fixture();
+  video.currentTime = 7;
+  video.pause();
+  video.dispatchEvent(new Event("error"));
+  video.metadata(64);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(video.load).not.toHaveBeenCalled();
+  expect(video.play).toHaveBeenCalledTimes(1);
+  await video.play();
+  video.finish();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(video.load).toHaveBeenCalledTimes(1);
+  await player.close();
+});
+it("deduplicates and bounds retries, then removes all native callbacks on close", async () => {
+  const { video, player, onError } = await fixture();
+  video.finish();
+  video.dispatchEvent(new Event("error"));
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(video.load).toHaveBeenCalledTimes(1);
+  for (let i = 0; i < 59; i++) {
+    video.metadata(16.02);
+    await vi.advanceTimersByTimeAsync(2000);
+  }
+  video.metadata(16.02);
+  expect(video.load).toHaveBeenCalledTimes(60);
+  expect(onError).toHaveBeenCalledTimes(1);
+  await player.close();
+  const loads = video.load.mock.calls.length,
+    plays = video.play.mock.calls.length;
+  for (const event of ["error", "ended", "loadedmetadata", "pause", "play"])
+    video.dispatchEvent(new Event(event));
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(video.load).toHaveBeenCalledTimes(loads);
+  expect(video.play).toHaveBeenCalledTimes(plays);
+});
+it("cancels a pending end-of-snapshot reload when the viewer closes", async () => {
+  const { video, player } = await fixture();
+  video.finish();
+  await player.close();
+  const loads = video.load.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(2500);
+  expect(video.load).toHaveBeenCalledTimes(loads);
+});
