@@ -91,3 +91,11 @@ export const getVideo = (id: string): Promise<Blob | null> =>
   media(id, "video");
 export const getImage = (id: string): Promise<Blob | null> =>
   media(id, "image");
+
+export async function setCreationLike(id: string, liked: boolean): Promise<{ liked: boolean; likeCount: number }> {
+  const result = await (await request(`/api/creations/${encodeURIComponent(id)}/like`, {
+    method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({liked}),
+  })).json();
+  if (typeof result.liked !== "boolean" || !Number.isSafeInteger(result.likeCount) || result.likeCount < 0) throw new Error("INVALID_LIKE_RESPONSE");
+  return result;
+}

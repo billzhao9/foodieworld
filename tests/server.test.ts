@@ -70,7 +70,7 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
   });
   beforeEach(async () => {
     await db.pool.query(
-      "TRUNCATE fw_records,fw_live,fw_creations,fw_logins,fw_narrations",
+      "TRUNCATE fw_creation_likes,fw_records,fw_live,fw_creations,fw_logins,fw_narrations",
     );
   });
   async function auth(app: ReturnType<typeof createApp>["app"]) {
@@ -82,6 +82,27 @@ describe.skipIf(!url)("PostgreSQL app integration", { timeout: 20_000 }, () => {
     expect(r.status).toBe(200);
     return r.headers.get("set-cookie")!.split(";")[0];
   }
+  it("persists idempotent likes and shared counts with auth and origin protection", async () => {
+    const { app } = createApp(config, db, vi.fn());
+    const a = await auth(app), b = await auth(app), id = randomUUID();
+    await db.pool.query("INSERT INTO fw_creations(id,meta,image,image_type) VALUES($1,$2,$3,$4)", [id, JSON.stringify({id,dishId:"custom",title:"Rice",description:"Test",ingredients:[],createdAt:Date.now()}), Buffer.from("img"), "image/png"]);
+    const like = (cookie: string, liked: boolean, origin?: string) => app.request(`/api/creations/${id}/like`, {method: "PUT", headers: {cookie, "Content-Type": "application/json", ...(origin ? {origin} : {})}, body: JSON.stringify({liked})});
+    expect((await like("", true)).status).toBe(401);
+    expect((await like(a, true, "https://evil.example")).status).toBe(403);
+    const duplicates = await Promise.all([like(a, true), like(a, true)]);
+    for (const r of duplicates) expect(await r.json()).toEqual({liked:true,likeCount:1});
+    expect(await (await like(b, true)).json()).toEqual({liked:true,likeCount:2});
+    const list = await app.request("/api/creations", {headers: {cookie:a}});
+    expect((await list.json())[0]).toMatchObject({liked:true,likeCount:2});
+    const visitor = list.headers.get("set-cookie")!.split(";")[0];
+    const relogged = await auth(app);
+    const afterLogin = await app.request("/api/creations", {headers:{cookie: `${relogged}; ${visitor}`}});
+    expect((await afterLogin.json())[0]).toMatchObject({liked:true,likeCount:2});
+    expect(await (await like(a, false)).json()).toEqual({liked:false,likeCount:1});
+    expect(await (await like(a, false)).json()).toEqual({liked:false,likeCount:1});
+    const result = await app.request(`/api/creations/${randomUUID()}/like`, {method:"PUT",headers:{cookie:a,"Content-Type":"application/json"},body:JSON.stringify({liked:true})});
+    expect(result.status).toBe(404);
+  });
   it("preserves large baskets across creation, retries, reload and metadata storage", async () => {
     const upstream = vi.fn();
     const { app } = createApp(config, db, upstream);

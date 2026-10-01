@@ -94,6 +94,7 @@ const {
   toggleSound,
   save,
   openFavorite,
+  updateCreationLike,
   recordingDownloadUrl,
 } = useKitchen();
 const pantryPanel = ref<HTMLElement>();
@@ -378,14 +379,18 @@ async function addCustom() {
     </main>
     <template v-else>
       <nav class="main-nav" :aria-label="l('主导航', 'Main navigation')">
-        <button :class="{ active: page === 'catalog' }" @click="back">
+        <button :class="{ active: page === 'catalog' && tab === 'all' }" :aria-current="page === 'catalog' && tab === 'all' ? 'page' : undefined" @click="tab = 'all'; back()">
           <BookOpen :size="18" />{{ t("catalog") }}</button
         ><button
           :class="{ active: page === 'lab' }"
+          :aria-current="page === 'lab' ? 'page' : undefined"
           @click="selected ? (page = 'lab') : enterLab()"
           :disabled="!selected && !basket.length"
         >
           <Sparkles :size="18" />{{ t("lab") }}<span class="nav-star">✦</span>
+        </button>
+        <button :class="{ active: page === 'catalog' && tab === 'favorites' }" :aria-current="page === 'catalog' && tab === 'favorites' ? 'page' : undefined" @click="tab = 'favorites'; collectionMode = 'gallery'; back()">
+          <Film :size="18" />{{ t('gallery') }}
         </button>
       </nav>
       <div v-if="saveState !== 'idle'" class="save-notice content-width" role="status" aria-live="polite">
@@ -409,7 +414,7 @@ async function addCustom() {
         <button @click="page = 'lab'">{{ l('返回这锅', 'Back to your dish') }} <ArrowRight :size="16" /></button>
       </div>
       <main v-show="page === 'catalog'" class="catalog-page content-width">
-        <section class="welcome">
+        <section v-if="tab === 'all'" class="welcome">
           <div class="welcome-copy">
             <span class="eyebrow"><Star :size="13" /> {{ t("tagline") }}</span>
             <h1>{{ t("headline") }}</h1>
@@ -417,14 +422,13 @@ async function addCustom() {
           </div>
           <KitchenArt variant="witch" /><span class="welcome-sparkle">✧</span>
         </section>
+        <header v-if="tab === 'favorites'" class="gallery-heading">
+          <h1>{{ t('gallery') }}</h1>
+          <p>{{ l('每一锅都有新故事，给喜欢的脑洞点个赞。', 'Every dish has a story. Like your favorite kitchen creations.') }}</p>
+        </header>
         <div class="catalog-toolbar">
-          <div class="collection-tabs">
-            <button :class="{ active: tab === 'all' }" @click="tab = 'all'">
-              <BookOpen :size="16" />{{ t("all")
-              }}<span>{{
-                ingredients.filter((i) => i.kind === "real").length
-              }}</span></button
-            ><button
+          <div v-if="tab === 'favorites'" class="collection-tabs">
+            <button
               :class="{
                 active: tab === 'favorites' && collectionMode === 'gallery',
               }"
@@ -691,6 +695,7 @@ async function addCustom() {
             :key="item.id"
             :item="item"
             @open="openFavorite"
+            @liked="updateCreationLike"
           />
         </div>
         <div v-else class="empty-state">

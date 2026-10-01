@@ -420,6 +420,12 @@ export function useKitchen() {
   }
   const galleryLoading = ref(false);
   const galleryError = ref(false);
+  let galleryRevision = 0;
+  function updateCreationLike(id: string, result: { liked: boolean; likeCount: number }) {
+    galleryRevision++;
+    const item = favorites.value.find(item => item.id === id);
+    if (item) Object.assign(item, result);
+  }
   let refreshTask: Promise<void> | null = null;
   function refresh(): Promise<void> {
     if (refreshTask) return refreshTask;
@@ -427,7 +433,16 @@ export function useKitchen() {
     galleryError.value = false;
     refreshTask = (async () => {
       try {
-        favorites.value = await listCreations();
+        const revision = galleryRevision;
+        const rows = await listCreations();
+        if (revision !== galleryRevision) {
+          // A fetch begun before the click must not overwrite its confirmed result.
+          for (const row of rows) {
+            const current = favorites.value.find(item => item.id === row.id);
+            if (current) { row.liked = current.liked; row.likeCount = current.likeCount; }
+          }
+        }
+        favorites.value = rows;
       } catch {
         // Keep the last successful collection and report errors in the gallery.
         galleryError.value = true;
@@ -1168,6 +1183,7 @@ export function useKitchen() {
     toggleSound,
     save,
     openFavorite,
+    updateCreationLike,
     recordingDownloadUrl,
   };
 }

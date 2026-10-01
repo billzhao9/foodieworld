@@ -49,6 +49,8 @@ export interface SavedCreation {
   createdAt: number;
   imageUrl: string;
   hasVideo: boolean;
+  likeCount?: number;
+  liked?: boolean;
 }
 export interface SessionReply {
   id: string;

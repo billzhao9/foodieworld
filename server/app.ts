@@ -1,3 +1,4 @@
+import { setCreationLike } from "./likes";
 import { MML_NARRATION_NAMESPACE } from "./mml-narration";
 import { cookwareSchema } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
@@ -59,7 +60,7 @@ export function createApp(
       : "macos-v1",
   );
   const sessions = new LiveSessions(db, upstream, crafts, config.environment);
-  const app = new Hono<{ Variables: { owner: string } }>();
+  const app = new Hono<{ Variables: { owner: string; visitor: string } }>();
   app.use("/api/*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("X-Content-Type-Options", "nosniff");
@@ -177,6 +178,13 @@ export function createApp(
     }
     if (session.expires < Date.now()) throw new ApiError("UNAUTHORIZED", 401);
     c.set("owner", session.owner);
+    const existingVisitor = await getSignedCookie(c, `${config.secret}:visitor`, "fw_visitor");
+    // Concurrent first requests use the same signed session identity.
+    const visitor = uuid.safeParse(existingVisitor).success ? String(existingVisitor) : session.owner;
+    if (visitor !== existingVisitor) await setSignedCookie(c, "fw_visitor", visitor, `${config.secret}:visitor`, {
+      httpOnly: true, secure: config.secure, sameSite: "Strict", path: "/", maxAge: 365 * 86400,
+    });
+    c.set("visitor", visitor);
     await next();
   });
   app.get("/api/auth", (c) => c.json({ ok: true }));
@@ -323,15 +331,26 @@ export function createApp(
   });
   app.get("/api/creations", async (c) => {
     const r = await db.pool.query(
-      "SELECT id,meta,video IS NOT NULL AS has_video FROM fw_creations ORDER BY created_at DESC LIMIT 100",
+      `SELECT c.id,c.meta,c.video IS NOT NULL AS has_video,
+        (SELECT count(*)::int FROM fw_creation_likes l WHERE l.creation_id=c.id) AS like_count,
+        EXISTS(SELECT 1 FROM fw_creation_likes l WHERE l.creation_id=c.id AND l.visitor=$1) AS liked
+       FROM fw_creations c ORDER BY c.created_at DESC LIMIT 100`,
+      [c.get("visitor")],
     );
     return c.json(
       r.rows.map((r) => ({
         ...metaSchema.parse(r.meta),
         imageUrl: `/api/creations/${r.id}/cover`,
         hasVideo: r.has_video === true,
+        likeCount: Number(r.like_count),
+        liked: r.liked === true,
       })),
     );
+  });
+  app.put("/api/creations/:id/like", async (c) => {
+    const id = uuid.parse(c.req.param("id"));
+    const { liked } = z.object({ liked: z.boolean() }).strict().parse(await c.req.json());
+    return c.json(await setCreationLike(db, id, c.get("visitor"), liked));
   });
   app.post("/api/creations", async (c) => {
     const body = await c.req.parseBody();

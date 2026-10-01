@@ -24,6 +24,7 @@ export class Database {
  ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS cover_type text;
  ALTER TABLE fw_creations ADD COLUMN IF NOT EXISTS share_token text;
  CREATE UNIQUE INDEX IF NOT EXISTS fw_creations_share ON fw_creations(share_token) WHERE share_token IS NOT NULL;
+ CREATE TABLE IF NOT EXISTS fw_creation_likes (creation_id text NOT NULL REFERENCES fw_creations(id) ON DELETE CASCADE,visitor text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(creation_id,visitor));
  CREATE TABLE IF NOT EXISTS fw_logins (bucket text PRIMARY KEY,attempts integer NOT NULL,expires_at bigint NOT NULL);
  `);
   }

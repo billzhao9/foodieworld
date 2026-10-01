@@ -43,11 +43,7 @@ defineExpose({ open });
     @click="open"
   >
     <img :src="poster" :alt="title" loading="lazy" />
-    <span
-      ><Play :size="22" fill="currentColor" />{{
-        l("播放 · 放大", "Play · Expand")
-      }}</span
-    >
+    <span aria-hidden="true"><Maximize :size="19" /></span>
   </button>
   <Teleport to="body">
     <dialog

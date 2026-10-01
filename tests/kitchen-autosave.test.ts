@@ -299,3 +299,16 @@ it('keeps the live session running during catalogue navigation and preserves the
   expect(k.baseIngredients.value).toEqual(['番茄']);
   await k.stop();
 });
+
+it('does not let a gallery fetch started before a like overwrite its confirmed state', async () => {
+  const k = useKitchen();
+  const row = {id: 'creation', title: 'Rice', liked: false, likeCount: 0} as any;
+  k.favorites.value = [{...row}];
+  let resolve!: (value: any[]) => void;
+  vi.mocked(listCreations).mockReturnValueOnce(new Promise(r => {resolve = r;}));
+  const fetching = k.refreshGallery();
+  k.updateCreationLike('creation', {liked: true, likeCount: 1});
+  resolve([{...row}]);
+  await fetching;
+  expect(k.favorites.value[0]).toMatchObject({liked: true, likeCount: 1});
+});
