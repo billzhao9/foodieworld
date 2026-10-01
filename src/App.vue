@@ -380,14 +380,14 @@ async function addCustom() {
     <template v-else>
       <nav class="main-nav" :aria-label="l('主导航', 'Main navigation')">
         <button :class="{ active: page === 'catalog' && tab === 'all' }" :aria-current="page === 'catalog' && tab === 'all' ? 'page' : undefined" @click="tab = 'all'; back()">
-          <BookOpen :size="18" />{{ t("catalog") }}</button
+          <BookOpen :size="18" />{{ l("食材篮", "Ingredients") }}</button
         ><button
           :class="{ active: page === 'lab' }"
           :aria-current="page === 'lab' ? 'page' : undefined"
           @click="selected ? (page = 'lab') : enterLab()"
           :disabled="!selected && !basket.length"
         >
-          <Sparkles :size="18" />{{ t("lab") }}<span class="nav-star">✦</span>
+          <Sparkles :size="18" />{{ l("炼金台", "Kitchen") }}<span class="nav-star">✦</span>
         </button>
         <button :class="{ active: page === 'catalog' && tab === 'favorites' }" :aria-current="page === 'catalog' && tab === 'favorites' ? 'page' : undefined" @click="tab = 'favorites'; collectionMode = 'gallery'; back()">
           <Film :size="18" />{{ t('gallery') }}
