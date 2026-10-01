@@ -60,3 +60,13 @@ it('waits for a queued admission before attaching a viewer and preserves the unl
  expect(connectManagedLive).toHaveBeenCalledWith(expect.objectContaining({ audioContext: audio, url: '/stream/index.m3u8' }));
  expect(kitchen.stage.value).toBe('live');
 });
+
+it('closes the live viewer before assigning the saved replay source', async () => {
+ const kitchen = await begin();
+ mocks.close.mockImplementation(async () => {
+  expect(kitchen.recordingUrl.value).toBe('');
+ });
+ mocks.archived = true;
+ await vi.advanceTimersByTimeAsync(2100);
+ expect(kitchen.recordingUrl.value).toContain('/saved-server/video');
+});

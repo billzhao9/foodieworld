@@ -740,11 +740,12 @@ export function useKitchen() {
       if (data.session.creationId) {
         saveId = data.session.creationId;
         saved.value = true; saveState.value = "saved";
-        recordingUrl.value = `/api/creations/${encodeURIComponent(saveId)}/video`;
-        statusCode.value = data.session.error?.startsWith("PARTIAL_RECORDING") ? "managedPartial" : "replay"; stage.value = "stopped";
         clearInterval(managedPoll);
         session = null;
-        await player?.close(); player = null;
+        const finishedPlayer = player; player = null;
+        await finishedPlayer?.close();
+        recordingUrl.value = `/api/creations/${encodeURIComponent(saveId)}/video`;
+        statusCode.value = data.session.error?.startsWith("PARTIAL_RECORDING") ? "managedPartial" : "replay"; stage.value = "stopped";
         await refresh();
       } else if (data.session.recordingStatus === "failed") {
         stage.value = "stopped"; saveState.value = "failed";

@@ -56,6 +56,8 @@ async function fixture() {
     onAudioBlocked: vi.fn(),
     onError,
   });
+  await Promise.resolve();
+  video.play.mockClear();
   video.metadata();
   await Promise.resolve();
   return { video, player, onError };

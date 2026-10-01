@@ -99,7 +99,7 @@ export async function connectManagedLive(args: {
     };
     const paused = () => {
       if (ignoreLoadPause) return;
-      if (closed || video.ended) return;
+      if (closed || video.ended || video.error || video.readyState === 0) return;
       userPaused = true;
       clearTimeout(reconnect);
       reconnect = undefined;
@@ -138,6 +138,9 @@ export async function connectManagedLive(args: {
       video.removeEventListener("pause", paused);
       video.removeEventListener("play", unpaused);
     };
+    // Start loading explicitly: iOS may not publish metadata until playback
+    // is requested, especially while the preview is covered by its poster.
+    void play();
   } else {
     const { default: Hls } = await import("hls.js");
     if (!Hls.isSupported()) throw new Error("HLS_UNSUPPORTED");
