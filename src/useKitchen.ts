@@ -631,7 +631,9 @@ export function useKitchen() {
         if (run !== generation) return;
         await attachManaged(opened, run, preparedAudio);
         audioTransferred = true;
-        if (opened.playbackUrl) pendingAudio = undefined;
+        // A queued managed session already has a playback URL. Only release
+        // this reference once the running viewer actually owns the context.
+        if (opened.status === "running") pendingAudio = undefined;
         return;
       }
       connectionSchema.parse(opened.connection);
@@ -959,6 +961,23 @@ export function useKitchen() {
       return;
     }
     errorCode.value = "";
+    // iOS may suspend the context during the long image-generation wait.
+    // An addition tap is a fresh user gesture: unlock before the async LLM/TTS
+    // requests lose that gesture, while respecting an intentional mute.
+    if (audioBlocked.value || !muted.value) {
+      const current = player;
+      current.setMuted(false);
+      void current.resumeAudio().then(() => {
+        if (player !== current) return;
+        muted.value = false;
+        audioBlocked.value = false;
+      }).catch(() => {
+        if (player !== current) return;
+        audioBlocked.value = true;
+        muted.value = true;
+        current.setMuted(true);
+      });
+    }
     additionQueue.value.push({ id: randomId(), name, kind, status: "queued" });
     void processAdditions();
   }

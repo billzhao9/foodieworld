@@ -4,7 +4,7 @@ vi.mock('vue', async original => ({ ...(await original<typeof import('vue')>()),
 vi.mock('../src/i18n', async () => ({ locale: (await import('vue')).ref('zh') }));
 vi.mock('../src/lib/live', () => ({ connectLive: vi.fn(), prepareLiveAudio: vi.fn(), recordingSupported: () => true }));
 vi.mock('../src/lib/managed-webrtc', () => ({ connectManagedLive: vi.fn(async (options: { onPlaying: () => void }) => {
- options.onPlaying(); return { close: mocks.close, update: vi.fn(), updateAudio: vi.fn(), speak: vi.fn(), stopSpeech: vi.fn(), setMuted: vi.fn(), resumeAudio: vi.fn() };
+ options.onPlaying(); return { close: mocks.close, update: vi.fn(), updateAudio: vi.fn(), speak: vi.fn(), stopSpeech: vi.fn(), setMuted: vi.fn(), resumeAudio: vi.fn().mockResolvedValue(undefined) };
 }) }));
 vi.mock('../src/lib/storage', () => ({ listCreations: vi.fn().mockResolvedValue([]), getVideo: vi.fn(), getImage: vi.fn() }));
 import { useKitchen } from '../src/useKitchen';
@@ -49,7 +49,7 @@ it('waits for a queued admission before attaching a viewer and preserves the unl
  vi.mocked(prepareLiveAudio).mockReturnValueOnce(audio);
  const original = vi.mocked(fetch).getMockImplementation()!;
  vi.mocked(fetch).mockImplementation(async (url, init) => {
-  if (String(url).endsWith('/live')) return Response.json({ managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '', status: 'queued' });
+  if (String(url).endsWith('/live')) return Response.json({ managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '/stream/already-assigned.m3u8', status: 'queued' });
   if (url === '/api/live/managed') return Response.json({ session: { managed: true, id: 'managed', expiresAt: Date.now() + 90000, playbackUrl: '/stream/index.m3u8', status: 'running', recordingStatus: 'capturing', commands: [] } });
   return original(url, init);
  });
@@ -91,4 +91,22 @@ it('closes the viewer when generation ends, before the archive becomes playable'
  mocks.archived = true; await vi.advanceTimersByTimeAsync(2100);
  expect(kitchen.saved.value).toBe(true);
  expect(mocks.close).toHaveBeenCalledTimes(1);
+});
+
+it('uses the addition gesture to unlock blocked audio before awaiting generation', async () => {
+ const kitchen = await begin();
+ const args = vi.mocked(connectManagedLive).mock.calls[0][0];
+ args.onAudioBlocked();
+ const player = await vi.mocked(connectManagedLive).mock.results[0].value;
+ kitchen.addIngredient('cheese');
+ expect(player.resumeAudio).toHaveBeenCalledTimes(1);
+ expect(player.setMuted).toHaveBeenCalledWith(false);
+ await Promise.resolve();
+ expect(kitchen.muted.value).toBe(false);
+});
+it('respects an intentional mute when adding an ingredient', async () => {
+ const kitchen = await begin(); kitchen.toggleSound();
+ const player = await vi.mocked(connectManagedLive).mock.results[0].value;
+ kitchen.addIngredient('cheese');
+ expect(player.resumeAudio).not.toHaveBeenCalled();
 });
