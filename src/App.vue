@@ -296,7 +296,7 @@ function queueStatus(status: string) {
     queued: ["等待中", "Queued"],
     preparing: ["正在构思", "Preparing"],
     applying: ["正在发送", "Sending"],
-    sent: ["已发送到画面", "Sent to scene"],
+    sent: ["模型已接收，留意画面变化", "Model received it — watch for changes"],
     failed: ["失败", "Failed"],
     cancelled: ["未发送", "Not sent"],
     uncertain: ["结果待确认", "Unconfirmed"],

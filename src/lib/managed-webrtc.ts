@@ -27,11 +27,15 @@ export async function connectManagedLive(args: {
   let retry: ReturnType<typeof setTimeout> | undefined;
   let removePeerListener: (() => void) | undefined;
   let speech: AudioBufferSourceNode | undefined;
+  let effects: MediaStreamAudioSourceNode | undefined;
   let speechSequence = 0;
   let failures = 0;
   video.playsInline = true;
   video.autoplay = true;
-  video.muted = muted;
+  // Safari's media-element autoplay policy is separate from the AudioContext
+  // unlocked by the start-button gesture. Keep video silent and mix both kinds
+  // of sound through that context, as on the original live player.
+  video.muted = context ? true : muted;
   // Keep this MediaStream/element intact throughout prompt changes. No HLS
   // snapshots, load(), currentTime seeks, or start commands on this path.
   video.srcObject = stream;
@@ -40,9 +44,8 @@ export async function connectManagedLive(args: {
     try { await video.play(); }
     catch (error) {
       if (closed || !(error instanceof Error) || error.name !== "NotAllowedError") return;
-      muted = true; video.muted = true;
-      if (gain) gain.gain.value = 0;
-      args.onAudioBlocked();
+      video.muted = true;
+      if (!context) args.onAudioBlocked();
       await video.play().catch(() => {});
     }
   };
@@ -85,6 +88,11 @@ export async function connectManagedLive(args: {
           stream.removeTrack(item); item.stop();
         });
         stream.addTrack(track);
+        if (name === "main_audio" && context && gain) {
+          effects?.disconnect();
+          effects = context.createMediaStreamSource(new MediaStream([track]));
+          effects.connect(gain);
+        }
         void play();
       });
       // Errors here affect viewing only. Backend ownership/recording survives.
@@ -141,12 +149,13 @@ export async function connectManagedLive(args: {
     async update() {}, // Ordered mutations go through Foodie's backend.
     async updateAudio() {},
     setMuted(value) {
-      muted = value; video.muted = value;
+      muted = value; video.muted = context ? true : value;
       if (gain) gain.gain.value = value ? 0 : 1;
     },
     async resumeAudio() {
       if (context && context.state !== "running" && context.state !== "closed") await context.resume();
-      video.muted = muted; await play(); resume();
+      if (context && context.state !== "running") throw new Error("AUDIO_BLOCKED");
+      video.muted = context ? true : muted; await play(); resume();
     },
     async speak(bytes) {
       stopSpeech();
@@ -170,7 +179,7 @@ export async function connectManagedLive(args: {
       window.removeEventListener("pageshow", resume);
       stream.getTracks().forEach(track => track.stop());
       if (video.srcObject === stream) { video.pause(); video.srcObject = null; }
-      gain?.disconnect();
+      effects?.disconnect(); gain?.disconnect();
       if (context && context.state !== "closed") await context.close().catch(() => {});
       return null;
     },

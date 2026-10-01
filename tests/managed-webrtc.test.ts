@@ -13,6 +13,7 @@ vi.mock('../src/lib/live', () => ({ prepareLiveAudio: () => undefined }));
 import { connectManagedLive } from '../src/lib/managed-webrtc';
 class Stream {
   tracks: MediaStreamTrack[] = [];
+  constructor(tracks: MediaStreamTrack[] = []) { this.tracks = tracks; }
   getTracks() { return this.tracks; }
   addTrack(track: MediaStreamTrack) { this.tracks.push(track); }
   removeTrack(track: MediaStreamTrack) { this.tracks = this.tracks.filter(t => t !== track); }
@@ -28,6 +29,31 @@ beforeEach(() => {
   clients.length = 0; vi.useFakeTimers();
   doc = Object.assign(new EventTarget(), { hidden: false });
   vi.stubGlobal('document', doc); vi.stubGlobal('window', new EventTarget()); vi.stubGlobal('MediaStream', Stream);
+});
+
+it('keeps Safari video autoplay muted while effects and narration remain audible through the unlocked context', async () => {
+ const video = Object.assign(new Video(), { muted: false });
+ const gain = { gain: { value: 0 }, connect: vi.fn(), disconnect: vi.fn() };
+ const effects = { connect: vi.fn(), disconnect: vi.fn() };
+ const speech = { connect: vi.fn(), disconnect: vi.fn(), start: vi.fn(), stop: vi.fn(), buffer: null };
+ const audio = { state: 'running', destination: {}, createGain: () => gain,
+   createMediaStreamSource: vi.fn(() => effects), createBufferSource: () => speech,
+   decodeAudioData: vi.fn(async () => ({})), close: vi.fn(async () => {}), resume: vi.fn(async () => {}) };
+ const blocked = vi.fn();
+ video.play.mockImplementation(async () => { if (!video.muted) throw new DOMException('Gesture required', 'NotAllowedError'); });
+ const connection = { protocol: 'webrtc' as const, sessionId: 'same-paid-session', jwt: 'scoped', apiBase: 'https://api.reactor.inc', modelSlug: 'orbis', expiresAt: Date.now()+90_000 };
+ const player = await connectManagedLive({ video: video as unknown as HTMLVideoElement,
+   getConnection: async () => ({ connection }), expiresAt: connection.expiresAt, muted: false,
+   audioContext: audio as unknown as AudioContext, onPlaying: vi.fn(), onAudioBlocked: blocked, onError: vi.fn() });
+ await vi.advanceTimersByTimeAsync(0);
+ clients[0].handlers.trackReceived('main_audio', { id: 'audio', kind: 'audio', stop: vi.fn() });
+ await player.speak(new ArrayBuffer(8));
+ expect(video.muted).toBe(true); expect(gain.gain.value).toBe(1);
+ expect(blocked).not.toHaveBeenCalled(); expect(effects.connect).toHaveBeenCalledWith(gain);
+ expect(speech.connect).toHaveBeenCalledWith(gain); expect(speech.start).toHaveBeenCalledOnce();
+ player.setMuted(true); expect(gain.gain.value).toBe(0);
+ player.setMuted(false); await player.resumeAudio(); expect(gain.gain.value).toBe(1); expect(video.muted).toBe(true);
+ await player.close(); expect(effects.disconnect).toHaveBeenCalled();
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 async function fixture() {
