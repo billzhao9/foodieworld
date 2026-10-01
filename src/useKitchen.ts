@@ -860,6 +860,9 @@ export function useKitchen() {
       return;
     }
     if (stopTask) return stopTask;
+    // A managed archive has already detached its viewer. Repeated stop/leave
+    // must not reinterpret that server-owned recording as a missing local blob.
+    if (saved.value && !session && !player && !connectingPlayer) return;
     cancelPendingAdditions();
     voiceGeneration++;
     const unusedAudio = pendingAudio;

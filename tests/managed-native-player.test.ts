@@ -44,8 +44,11 @@ class FakeVideo extends EventTarget {
     this.dispatchEvent(new Event("ended"));
   }
 }
-beforeEach(() => vi.useFakeTimers());
-afterEach(() => vi.useRealTimers());
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("#EXTM3U\n#EXTINF:999,\nchunk.m4s\n#EXT-X-ENDLIST")));
+});
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 async function fixture() {
   const video = new FakeVideo(),
     onError = vi.fn();
@@ -215,6 +218,38 @@ it("catches up a delayed live viewer within the available range without changing
   expect(video.currentTime).toBe(3);
   video.controls = false;
   await vi.advanceTimersByTimeAsync(1000);
-  expect(video.currentTime).toBe(22);
+  expect(video.currentTime).toBe(16);
+  await player.close();
+});
+it("requests finite provider snapshots for native playback", async () => {
+  const { video, player } = await fixture();
+  expect(video.src).toBe('/api/live/id/stream/index.m3u8?snapshot=1');
+  await player.close();
+});
+
+it("starts loading before restoring position when metadata has no seekable range", async () => {
+  const { video, player } = await fixture();
+  video.currentTime = 8;
+  video.dispatchEvent(new Event("error"));
+  await vi.advanceTimersByTimeAsync(2000);
+  video.metadata(Infinity);
+  await Promise.resolve();
+  expect(video.paused).toBe(false);
+  video.seekable = { length: 1, start: () => 0, end: () => 24 };
+  video.dispatchEvent(new Event("canplay"));
+  await Promise.resolve();
+  expect(video.currentTime).toBe(8);
+  await player.close();
+});
+
+it("keeps the last frame until a newer snapshot is available", async () => {
+  const { video, player } = await fixture();
+  vi.mocked(fetch).mockResolvedValueOnce(new Response("#EXTM3U\n#EXTINF:16.02,\nchunk.m4s"));
+  video.finish();
+  await vi.advanceTimersByTimeAsync(100);
+  expect(video.load).not.toHaveBeenCalled();
+  expect(video.currentTime).toBe(16.02);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(video.load).toHaveBeenCalledTimes(1);
   await player.close();
 });

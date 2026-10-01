@@ -45,14 +45,18 @@ export async function connectManagedLive(args: {
   };
   video.addEventListener("playing", playing);
   if (video.canPlayType("application/vnd.apple.mpegurl")) {
-    video.src = args.url;
+    // Each provider recording is an immutable snapshot. Native Safari cannot
+    // safely append snapshots whose init/segment URLs change on every refresh.
+    video.src = `${args.url}${args.url.includes("?") ? "&" : "?"}snapshot=1`;
     let resumeAt: number | undefined;
     let retries = 0;
+    let refreshing = false;
+    let refreshController: AbortController | undefined;
     let ignoreLoadPause = false;
     let lastPosition = video.currentTime;
     let lastProgressAt = Date.now();
-    const schedule = () => {
-      if (closed || userPaused || reconnect !== undefined) return;
+    const schedule = (delay = 2000) => {
+      if (closed || userPaused || refreshing || reconnect !== undefined) return;
       if (retries >= 60) {
         if (retries === 60) {
           retries++;
@@ -61,21 +65,45 @@ export async function connectManagedLive(args: {
         return;
       }
       lastPosition = video.currentTime;
-      reconnect = setTimeout(() => {
+      reconnect = setTimeout(async () => {
         reconnect = undefined;
         if (closed || userPaused) return;
         retries++;
-        ignoreLoadPause = true;
-        lastProgressAt = Date.now();
-        // Safari treats each materialized snapshot as finite, even for EVENT HLS.
-        // Loading a newer manifest must not replay the old snapshot from zero.
-        video.load();
-      }, 2000);
+        refreshing = true;
+        refreshController = new AbortController();
+        let retryLater = false;
+        try {
+          // Retain the last visible frame while the next snapshot is not ready.
+          // Calling load() first clears it and can strand Safari at time zero.
+          const response = await fetch(video.src, {
+            cache: "no-store", credentials: "same-origin",
+            signal: AbortSignal.any([refreshController.signal, AbortSignal.timeout(10000)]),
+          });
+          if (!response.ok) throw new Error("SNAPSHOT_NOT_READY");
+          const playlist = await response.text();
+          const duration = [...playlist.matchAll(/^#EXTINF:([\d.]+)/gm)]
+            .reduce((sum, match) => sum + Number(match[1]), 0);
+          if (closed || userPaused) return;
+          if (resumeAt !== undefined && duration <= resumeAt + 0.05) {
+            retryLater = true;
+            return;
+          }
+          ignoreLoadPause = true;
+          lastProgressAt = Date.now();
+          video.load();
+        } catch {
+          retryLater = !closed && !userPaused;
+        } finally {
+          refreshing = false;
+          refreshController = undefined;
+          if (retryLater) schedule();
+        }
+      }, delay);
     };
     const ended = () => {
       if (closed || userPaused) return;
       resumeAt = Math.max(resumeAt ?? 0, video.currentTime);
-      schedule();
+      schedule(0);
     };
     const retry = () => {
       if (video.currentTime > 0)
@@ -90,7 +118,13 @@ export async function connectManagedLive(args: {
           : video.seekable.length
             ? video.seekable.end(video.seekable.length - 1)
             : 0;
-        if (end <= resumeAt + 0.05 || !Number.isFinite(end)) {
+        if (!Number.isFinite(end) || end <= 0) {
+          // Native HLS can expose metadata before its duration/seekable ranges.
+          // Playback must load media before a saved position can be restored.
+          if (video.paused) void play();
+          return;
+        }
+        if (end <= resumeAt + 0.05) {
           schedule();
           return;
         }
@@ -116,6 +150,7 @@ export async function connectManagedLive(args: {
       reconnect = undefined;
     };
     const progressed = () => {
+      if (resumeAt !== undefined) return;
       const position = video.currentTime;
       // timeupdate also fires during stalls and seeks. Only actual forward
       // movement proves the viewer has recovered.
@@ -133,10 +168,10 @@ export async function connectManagedLive(args: {
       if (video.controls || video.paused || !video.seekable.length) return;
       const range = video.seekable.length - 1;
       const edge = video.seekable.end(range);
-      if (!Number.isFinite(edge) || edge - video.currentTime <= 10) return;
+      if (!Number.isFinite(edge) || edge - video.currentTime <= 20) return;
       try {
         // The live view follows new additions; the recording keeps skipped time.
-        video.currentTime = Math.max(video.seekable.start(range), edge - 2);
+        video.currentTime = Math.max(video.seekable.start(range), edge - 8);
         lastPosition = video.currentTime;
         lastProgressAt = Date.now();
       } catch { /* A changing seekable range is retried on the next tick. */ }
@@ -155,9 +190,13 @@ export async function connectManagedLive(args: {
       userPaused = false;
       clearTimeout(reconnect);
       reconnect = undefined;
-      resumeAt = undefined;
       lastProgressAt = Date.now();
     };
+    const readyToSeek = () => { if (resumeAt !== undefined) metadata(); };
+    video.addEventListener("durationchange", readyToSeek);
+    video.addEventListener("loadeddata", readyToSeek);
+    video.addEventListener("canplay", readyToSeek);
+    video.addEventListener("progress", readyToSeek);
     video.addEventListener("timeupdate", progressed);
     video.addEventListener("error", retry);
     video.addEventListener("ended", ended);
@@ -166,6 +205,11 @@ export async function connectManagedLive(args: {
     video.addEventListener("play", unpaused);
     removeNativeListeners = () => {
       clearInterval(watchdog);
+      refreshController?.abort();
+      video.removeEventListener("durationchange", readyToSeek);
+      video.removeEventListener("loadeddata", readyToSeek);
+      video.removeEventListener("canplay", readyToSeek);
+      video.removeEventListener("progress", readyToSeek);
       video.removeEventListener("timeupdate", progressed);
       video.removeEventListener("error", retry);
       video.removeEventListener("ended", ended);

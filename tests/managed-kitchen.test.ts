@@ -70,3 +70,11 @@ it('closes the live viewer before assigning the saved replay source', async () =
  await vi.advanceTimersByTimeAsync(2100);
  expect(kitchen.recordingUrl.value).toContain('/saved-server/video');
 });
+it('does not report a missing browser recording when stopping an already archived managed round', async () => {
+ const kitchen = await begin(); mocks.archived = true;
+ await vi.advanceTimersByTimeAsync(2100);
+ expect(kitchen.saved.value).toBe(true);
+ await kitchen.stop();
+ expect(kitchen.saveState.value).toBe('saved');
+ expect(kitchen.error.value).not.toContain('浏览器未交付录像');
+});

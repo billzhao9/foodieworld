@@ -583,7 +583,7 @@ export class ManagedSessions {
       output.set("Content-Type", "application/vnd.apple.mpegurl");
       // Keep every fragment request on this authenticated origin; viewer tickets stay server-side.
       return new Response(
-        localizeManagedPlaylist(text),
+        localizeManagedPlaylist(text, new URL(request.url).searchParams.get("snapshot") === "1"),
         { headers: output },
       );
     }

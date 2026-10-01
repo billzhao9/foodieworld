@@ -105,20 +105,12 @@ async function previewLocalRecording() {
   videoElement.value?.scrollIntoView({block: "center", behavior: "smooth"});
 }
 const pantryPanel = ref<HTMLElement>();
-const additionHintDismissed = ref((() => {
-  try {
-    return localStorage.getItem("foodie-addition-hint-dismissed") === "1";
-  } catch {
-    return false;
-  }
-})());
+const additionHintDismissed = ref(false);
+watch(stage, (value) => {
+  if (value === "planning" || value === "idle") additionHintDismissed.value = false;
+});
 function showPantry() {
   additionHintDismissed.value = true;
-  try {
-    localStorage.setItem("foodie-addition-hint-dismissed", "1");
-  } catch {
-    // Keep the hint dismissed for this visit when browser storage is unavailable.
-  }
   pantryPanel.value?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
   pantryPanel.value?.focus({ preventScroll: true });
 }
