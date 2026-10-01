@@ -6,9 +6,10 @@ class FakeVideo extends EventTarget {
   muted = false;
   paused = true;
   ended = false;
+  controls = true;
   currentTime = 0;
   duration = 16.02;
-  seekable = { length: 0, end: () => 0 };
+  seekable = { length: 0, start: () => 0, end: () => 0 };
   canPlayType() {
     return "probably";
   }
@@ -125,6 +126,7 @@ it("cancels a pending end-of-snapshot reload when the viewer closes", async () =
 it("recovers a stalled snapshot without an ended event", async () => {
   const { video, player } = await fixture();
   video.currentTime = 12;
+  video.dispatchEvent(new Event("timeupdate"));
   video.dispatchEvent(new Event("waiting"));
   await vi.advanceTimersByTimeAsync(8000);
   expect(video.load).toHaveBeenCalledTimes(1);
@@ -170,5 +172,49 @@ it("does not mislabel an initial unavailable playlist as an audio permission den
   video.metadata();
   await Promise.resolve();
   expect(video.paused).toBe(false);
+  await player.close();
+});
+
+it("recovers when repeated timeupdate events report a frozen playhead", async () => {
+  const { video, player } = await fixture();
+  video.controls = false;
+  video.currentTime = 12;
+  video.dispatchEvent(new Event("timeupdate"));
+  video.dispatchEvent(new Event("waiting"));
+  for (let i = 0; i < 9; i++) {
+    await vi.advanceTimersByTimeAsync(1000);
+    video.dispatchEvent(new Event("timeupdate"));
+  }
+  expect(video.load).toHaveBeenCalled();
+  video.metadata(40);
+  await Promise.resolve();
+  expect(video.currentTime).toBe(12);
+  expect(video.paused).toBe(false);
+  await player.close();
+});
+it("recovers a silent system pause when live playback has no pause controls", async () => {
+  const { video, player } = await fixture();
+  video.controls = false;
+  video.currentTime = 9;
+  video.dispatchEvent(new Event("timeupdate"));
+  video.pause();
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(video.load).toHaveBeenCalled();
+  video.metadata(40);
+  await Promise.resolve();
+  expect(video.currentTime).toBe(9);
+  expect(video.paused).toBe(false);
+  await player.close();
+});
+
+it("catches up a delayed live viewer within the available range without changing controlled playback", async () => {
+  const { video, player } = await fixture();
+  video.currentTime = 3;
+  video.seekable = { length: 1, start: () => 2, end: () => 24 };
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(video.currentTime).toBe(3);
+  video.controls = false;
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(video.currentTime).toBe(22);
   await player.close();
 });

@@ -49,7 +49,8 @@ export async function connectManagedLive(args: {
     let resumeAt: number | undefined;
     let retries = 0;
     let ignoreLoadPause = false;
-    let stall: ReturnType<typeof setTimeout> | undefined;
+    let lastPosition = video.currentTime;
+    let lastProgressAt = Date.now();
     const schedule = () => {
       if (closed || userPaused || reconnect !== undefined) return;
       if (retries >= 60) {
@@ -59,11 +60,13 @@ export async function connectManagedLive(args: {
         }
         return;
       }
+      lastPosition = video.currentTime;
       reconnect = setTimeout(() => {
         reconnect = undefined;
         if (closed || userPaused) return;
         retries++;
-        ignoreLoadPause = !video.paused;
+        ignoreLoadPause = true;
+        lastProgressAt = Date.now();
         // Safari treats each materialized snapshot as finite, even for EVENT HLS.
         // Loading a newer manifest must not replay the old snapshot from zero.
         video.load();
@@ -93,50 +96,77 @@ export async function connectManagedLive(args: {
         }
         try {
           video.currentTime = resumeAt;
+          lastPosition = resumeAt;
         } catch {
           schedule();
           return;
         }
         resumeAt = undefined;
       }
-      retries = 0;
       void play();
     };
     const paused = () => {
       if (ignoreLoadPause) return;
       if (closed || video.ended || video.error || video.readyState === 0) return;
+      // The live surface has no pause control. Safari can pause it when scrolling
+      // or backgrounding; that must not permanently disable viewer recovery.
+      if (!video.controls) { retry(); return; }
       userPaused = true;
       clearTimeout(reconnect);
       reconnect = undefined;
     };
     const progressed = () => {
-      ignoreLoadPause = false;
-      clearTimeout(stall);
+      const position = video.currentTime;
+      // timeupdate also fires during stalls and seeks. Only actual forward
+      // movement proves the viewer has recovered.
+      if (position > lastPosition + 0.01) {
+        ignoreLoadPause = false;
+        lastProgressAt = Date.now();
+        retries = 0;
+        lastPosition = position;
+        clearTimeout(reconnect);
+        reconnect = undefined;
+        resumeAt = undefined;
+      }
     };
-    const stalled = () => {
-      clearTimeout(stall);
-      stall = setTimeout(() => { if (!userPaused && !closed) retry(); }, 6000);
+    const catchUp = () => {
+      if (video.controls || video.paused || !video.seekable.length) return;
+      const range = video.seekable.length - 1;
+      const edge = video.seekable.end(range);
+      if (!Number.isFinite(edge) || edge - video.currentTime <= 10) return;
+      try {
+        // The live view follows new additions; the recording keeps skipped time.
+        video.currentTime = Math.max(video.seekable.start(range), edge - 2);
+        lastPosition = video.currentTime;
+        lastProgressAt = Date.now();
+      } catch { /* A changing seekable range is retried on the next tick. */ }
     };
+    const watchdog = setInterval(() => {
+      if (closed || userPaused) return;
+      if (typeof document !== "undefined" && document.hidden) {
+        lastProgressAt = Date.now();
+        return;
+      }
+      progressed();
+      catchUp();
+      if (Date.now() - lastProgressAt >= 6000) retry();
+    }, 1000);
     const unpaused = () => {
       userPaused = false;
       clearTimeout(reconnect);
       reconnect = undefined;
       resumeAt = undefined;
-      retries = 0;
+      lastProgressAt = Date.now();
     };
     video.addEventListener("timeupdate", progressed);
-    video.addEventListener("waiting", stalled);
-    video.addEventListener("stalled", stalled);
     video.addEventListener("error", retry);
     video.addEventListener("ended", ended);
     video.addEventListener("loadedmetadata", metadata);
     video.addEventListener("pause", paused);
     video.addEventListener("play", unpaused);
     removeNativeListeners = () => {
-      clearTimeout(stall);
+      clearInterval(watchdog);
       video.removeEventListener("timeupdate", progressed);
-      video.removeEventListener("waiting", stalled);
-      video.removeEventListener("stalled", stalled);
       video.removeEventListener("error", retry);
       video.removeEventListener("ended", ended);
       video.removeEventListener("loadedmetadata", metadata);
