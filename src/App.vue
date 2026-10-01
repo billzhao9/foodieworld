@@ -36,6 +36,7 @@ import {
 } from "lucide-vue-next";
 import { MAX_BASE_INGREDIENTS } from "../shared/limits";
 import { ingredients, type IngredientCategory } from "../shared/catalog";
+import VideoExport from "./components/VideoExport.vue";
 import IngredientEditor from "./components/IngredientEditor.vue";
 import IngredientCategories from "./components/IngredientCategories.vue";
 import { locale, t, localized as l } from "./i18n";
@@ -93,8 +94,13 @@ const {
   toggleSound,
   save,
   openFavorite,
-  downloadRecording,
+  recordingDownloadUrl,
 } = useKitchen();
+const pantryPanel = ref<HTMLElement>();
+function showPantry() {
+  pantryPanel.value?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+  pantryPanel.value?.focus({ preventScroll: true });
+}
 const ingredientEditor = ref<InstanceType<typeof IngredientEditor>>();
 const sharedToken = new URLSearchParams(window.location.search).get("share");
 const collectionMode = ref<"gallery" | "all">("gallery");
@@ -398,7 +404,11 @@ async function addCustom() {
           {{ l('重试上传', 'Retry upload') }}
         </button>
       </div>
-      <main v-if="page === 'catalog'" class="catalog-page content-width">
+      <div v-if="page === 'catalog' && selected && ['planning', 'imaging', 'connecting', 'live'].includes(stage)" class="ongoing-round content-width">
+        <span>{{ stage === 'live' ? l('你的料理正在直播，随时加料改变剧情', 'Your dish is live — add a twist anytime') : l('你的料理正在生成，可自由逛画廊', 'Your dish is being prepared — feel free to browse') }}</span>
+        <button @click="page = 'lab'">{{ l('返回这锅', 'Back to your dish') }} <ArrowRight :size="16" /></button>
+      </div>
+      <main v-show="page === 'catalog'" class="catalog-page content-width">
         <section class="welcome">
           <div class="welcome-copy">
             <span class="eyebrow"><Star :size="13" /> {{ t("tagline") }}</span>
@@ -585,7 +595,7 @@ async function addCustom() {
               :disabled="!basket.length"
               @click="enterLab"
             >
-              <WandSparkles :size="18" />{{ t("basketStart")
+              <WandSparkles :size="18" />{{ ["planning", "imaging", "connecting", "live"].includes(stage) ? l("返回正在烹饪的料理", "Return to your active kitchen") : t("basketStart")
               }}<ArrowRight :size="17" />
             </button>
           </div>
@@ -730,7 +740,7 @@ async function addCustom() {
           </button>
         </div>
       </main>
-      <main v-else-if="selected" class="lab-page content-width">
+      <main v-if="selected" v-show="page === 'lab'" class="lab-page content-width">
         <IngredientEditor
           ref="ingredientEditor"
           :names="selected.ingredients"
@@ -851,6 +861,9 @@ async function addCustom() {
               >
                 <VolumeX v-if="muted" :size="19" /><Volume2 v-else :size="19" />
               </button>
+              <button v-if="stage === 'live'" class="live-add-cta" @click="showPantry">
+                <Sparkles :size="17" />{{ l('加点料，改变视频！', 'Add a twist — change the video!') }}
+              </button>
             </div>
             <div class="cooking-details">
               <GenerationProgress :stage="stage" />
@@ -894,13 +907,7 @@ async function addCustom() {
                   />{{ t(saved ? "saved" : "save") }}
                 </button>
               </div>
-              <button
-                v-if="recordingUrl"
-                class="recording-button"
-                @click="downloadRecording"
-              >
-                <Download :size="15" />{{ t("recording") }}
-              </button>
+              <VideoExport v-if="recordingUrl" :src="recordingDownloadUrl" :title="title" />
               <p v-if="!recordingSupported" class="recording-note" role="status">
                 {{ t("recordingUnsupported") }}
               </p>
@@ -953,7 +960,7 @@ async function addCustom() {
               </div>
             </div>
           </section>
-          <section class="pantry-panel">
+          <section ref="pantryPanel" class="pantry-panel" tabindex="-1">
             <div class="pantry-heading">
               <span class="small-wand"><WandSparkles :size="23" /></span>
               <div>

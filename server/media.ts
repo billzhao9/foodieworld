@@ -1,4 +1,4 @@
-export function mediaResponse(data: Buffer, type: string, range?: string) {
+export function mediaResponse(data: Buffer, type: string, range?: string, download = false) {
   const headers = {
     // MediaRecorder may report codec hints that do not match the final stream
     // (e.g. AVC level 1 for a level 5 recording). Let the container identify it.
@@ -6,6 +6,7 @@ export function mediaResponse(data: Buffer, type: string, range?: string) {
     "Cache-Control": "private, no-store",
     "Accept-Ranges": "bytes",
     "X-Content-Type-Options": "nosniff",
+    ...(download ? { "Content-Disposition": `attachment; filename="foodieworld.${type.split(';')[0] === 'video/mp4' ? 'mp4' : type.split(';')[0] === 'video/webm' ? 'webm' : 'mkv'}"` } : {}),
   };
   const invalid = () =>
     new Response(null, {

@@ -285,3 +285,17 @@ it('captures a connection that finishes returning after stop was requested', asy
   expect(saveCreation).toHaveBeenCalledOnce();
   expect(k.saved.value).toBe(true);
 });
+
+it('keeps the live session running during catalogue navigation and preserves the current recipe', async () => {
+  const k = await live();
+  const close = (await vi.mocked(connectLive).mock.results[0].value).close;
+  k.back();
+  expect(k.page.value).toBe('catalog');
+  expect(k.stage.value).toBe('live');
+  expect(close).not.toHaveBeenCalled();
+  expect(saveCreation).not.toHaveBeenCalled();
+  k.selectIngredients(['米饭']);
+  expect(k.page.value).toBe('lab');
+  expect(k.baseIngredients.value).toEqual(['番茄']);
+  await k.stop();
+});

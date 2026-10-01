@@ -18,7 +18,7 @@ import { ApiError, makeUpstream, type Upstream } from "./upstream";
 import { Crafts } from "./crafts";
 import { LiveSessions } from "./live";
 import { mediaResponse } from "./media";
-import { finalizeRecording } from "./recording";
+import { finalizeRecording, exportMp4 } from "./recording";
 const uuid = z.string().uuid();
 const metaSchema = z.object({
   id: uuid,
@@ -160,7 +160,9 @@ export function createApp(
     );
     const row = r.rows[0];
     if (!row?.data) throw new ApiError("NOT_FOUND", 404);
-    return mediaResponse(row.data, String(row.type), c.req.header("range"));
+    const asMp4 = media === "video" && c.req.query("format") === "mp4";
+    const bytes = asMp4 ? await exportMp4(row.data, String(row.type)) : row.data;
+    return mediaResponse(bytes, asMp4 ? "video/mp4" : String(row.type), c.req.header("range"), media === "video" && c.req.query("download") === "1");
   });
   app.use("/api/*", async (c, next) => {
     const cookie = await getSignedCookie(c, config.secret, "fw_session");
@@ -400,7 +402,9 @@ export function createApp(
     );
     const row = r.rows[0];
     if (!row?.data) throw new ApiError("NOT_FOUND", 404);
-    return mediaResponse(row.data, String(row.type), c.req.header("range"));
+    const asMp4 = media === "video" && c.req.query("format") === "mp4";
+    const bytes = asMp4 ? await exportMp4(row.data, String(row.type)) : row.data;
+    return mediaResponse(bytes, asMp4 ? "video/mp4" : String(row.type), c.req.header("range"), media === "video" && c.req.query("download") === "1");
   });
   app.onError((e, c) => {
     if (e instanceof ApiError)

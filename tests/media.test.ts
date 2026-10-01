@@ -10,3 +10,10 @@ it("serves recorder MP4 with the container MIME type rather than inaccurate code
   expect(response.headers.get("content-type")).toBe("video/mp4");
   expect(response.headers.get("content-range")).toBe("bytes 0-1/10");
 });
+
+it('uses an explicit filename and retains range support for downloadable videos', () => {
+  const r = mediaResponse(Buffer.from('recording'), 'video/mp4', 'bytes=0-1', true);
+  expect(r.status).toBe(206);
+  expect(r.headers.get('content-disposition')).toBe('attachment; filename="foodieworld.mp4"');
+  expect(mediaResponse(Buffer.from('video'), 'video/mp4').headers.has('content-disposition')).toBe(false);
+});

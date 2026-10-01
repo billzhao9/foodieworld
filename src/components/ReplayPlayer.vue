@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import VideoExport from "./VideoExport.vue";
 import { ref, onUnmounted } from "vue";
 import { beginReplay } from "../lib/replay-start";
 import { Play, Maximize, X } from "lucide-vue-next";
@@ -33,6 +34,7 @@ function fullscreen() {
     void element.requestFullscreen().catch(() => {});
   // The full-viewport dialog remains usable when native fullscreen is unavailable.
 }
+defineExpose({ open });
 </script>
 <template>
   <button
@@ -94,6 +96,7 @@ function fullscreen() {
           <Maximize :size="18" />{{ l("全屏播放", "Fullscreen") }}
         </button>
       </footer>
+      <VideoExport v-if="state !== 'error'" :src="src" :title="title" />
     </dialog>
   </Teleport>
 </template>

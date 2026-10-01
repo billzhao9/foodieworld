@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { fragmentedMp4, finalizeRecording } from "../server/recording";
+import { fragmentedMp4, finalizeRecording, exportMp4 } from "../server/recording";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -69,3 +69,20 @@ it.skipIf(!ffmpegAvailable)(
     }
   },
 );
+
+it.skipIf(!ffmpegAvailable)("exports WebM as a cached Photos-compatible H.264 MP4", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fw-export-test-"));
+  try {
+    const input = join(directory, "input.webm");
+    execFileSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=10", "-t", "0.3", "-c:v", "libvpx-vp9", input]);
+    const source = await readFile(input);
+    const [result, duplicate] = await Promise.all([exportMp4(source, "video/webm"), exportMp4(source, "video/webm")]);
+    expect(duplicate.equals(result)).toBe(true);
+    expect((await exportMp4(source, "video/webm")).equals(result)).toBe(true);
+    const output = join(directory, "output.mp4");
+    await (await import("node:fs/promises")).writeFile(output, result);
+    const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_name,pix_fmt", "-of", "json", output]).toString());
+    expect(info.streams[0]).toMatchObject({codec_name: "h264", pix_fmt: "yuv420p"});
+    expect(fragmentedMp4(result)).toBe(false);
+  } finally { await rm(directory, {recursive: true, force: true}); }
+});

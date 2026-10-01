@@ -495,6 +495,10 @@ export function useKitchen() {
     recordingUrl.value = "";
   }
   function selectIngredients(names: string[]) {
+    if (["planning", "imaging", "connecting", "live"].includes(stage.value)) {
+      page.value = "lab";
+      return;
+    }
     if (!names.length || names.length > MAX_BASE_INGREDIENTS) return;
     reset();
     baseIngredients.value = [...names];
@@ -789,14 +793,10 @@ export function useKitchen() {
     });
     return stopTask;
   }
-  async function back() {
-    await stop();
-    if (recording?.size && !saved.value) {
-      await persistCreation();
-      if (!saved.value) return;
-    }
+  function back() {
+    // Navigation is not a stop command. Keep the same player and recipe alive.
     page.value = "catalog";
-    await refresh();
+    void refresh();
   }
   function cancelPendingAdditions() {
     queueEpoch++;
@@ -1018,6 +1018,10 @@ export function useKitchen() {
     return recoveryTask;
   }
   async function openFavorite(item: SavedCreation) {
+    if (["planning", "imaging", "connecting", "live"].includes(stage.value)) {
+      page.value = "lab";
+      return;
+    }
     selectedCookware.value = item.cookware;
     await stop();
     selectIngredients(
@@ -1052,13 +1056,9 @@ export function useKitchen() {
       failure(e);
     }
   }
-  function downloadRecording() {
-    if (!recordingUrl.value) return;
-    const link = document.createElement("a");
-    link.href = recordingUrl.value;
-    link.download = `foodieworld-${Date.now()}.${recording?.type.includes("mp4") ? "mp4" : "webm"}`;
-    link.click();
-  }
+  const recordingDownloadUrl = computed(() => saved.value
+    ? `/api/creations/${encodeURIComponent(saveId)}/video`
+    : recordingUrl.value);
   function leave() {
     if (session)
       void fetch(`/api/live/${session.id}/stop`, {
@@ -1168,6 +1168,6 @@ export function useKitchen() {
     toggleSound,
     save,
     openFavorite,
-    downloadRecording,
+    recordingDownloadUrl,
   };
 }

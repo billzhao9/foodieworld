@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import VideoExport from "./VideoExport.vue";
 import { ref, onMounted, onUnmounted, computed } from "vue";
 import {
   Sparkles,
@@ -102,6 +103,7 @@ onUnmounted(() => controller.abort());
           :alt="l(item.title, item.titleEn || item.title)"
         />
       </div>
+      <VideoExport v-if="item.hasVideo" :src="videoUrl" :title="l(item.title, item.titleEn || item.title)" />
       <div class="shared-caption">
         <Film v-if="item.hasVideo" :size="14" /><Heart v-else :size="14" />{{
           t(item.hasVideo ? "recordedCreation" : "savedRecipe")

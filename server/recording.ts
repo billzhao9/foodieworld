@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const run = promisify(execFile);
@@ -28,8 +28,9 @@ export function fragmentedMp4(data: Buffer): boolean {
 export async function finalizeRecording(
   data: Buffer,
   type: string,
+  forceMp4 = false,
 ): Promise<Buffer> {
-  if (type.split(";")[0]?.trim() !== "video/mp4" || !fragmentedMp4(data))
+  if (!forceMp4 && (type.split(";")[0]?.trim() !== "video/mp4" || !fragmentedMp4(data)))
     return data;
   const backupDirectory = join(process.cwd(), ".data", "recording-originals");
   await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
@@ -93,4 +94,27 @@ export async function finalizeRecording(
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+
+const exportsInProgress = new Map<string, Promise<Buffer>>();
+export async function exportMp4(data: Buffer, type: string): Promise<Buffer> {
+  if (type.split(';')[0]?.trim() === 'video/mp4') return finalizeRecording(data, type);
+  const hash = createHash('sha256').update(data).digest('hex');
+  const directory = join(process.cwd(), '.data', 'video-exports');
+  await mkdir(directory, {recursive: true, mode: 0o700});
+  const path = join(directory, `${hash}.mp4`);
+  try { return await readFile(path); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const pending = exportsInProgress.get(hash);
+  if (pending) return pending;
+  if (exportsInProgress.size >= 2) throw new Error('EXPORT_BUSY');
+  const task = (async () => {
+    const mp4 = await finalizeRecording(data, type, true);
+    const temporary = `${path}.tmp`;
+    await writeFile(temporary, mp4, {mode: 0o600});
+    await rename(temporary, path);
+    return mp4;
+  })().finally(() => exportsInProgress.delete(hash));
+  exportsInProgress.set(hash, task);
+  return task;
 }
