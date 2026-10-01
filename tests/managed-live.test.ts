@@ -143,6 +143,10 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
     expect(session.playbackUrl).toBe(
       `/api/live/${session.id}/stream/index.m3u8`,
     );
+    expect(f.upstream).toHaveBeenCalledWith("/live-sessions", expect.objectContaining({
+      options: { audioEnabled: true, passthrough: true, resolution: "1080p" },
+      inputCounts: { opening: 1 },
+    }));
     expect(f.save.mock.calls.map(([input]) => input.kind)).toEqual([
       "image",
       "audio",
@@ -244,7 +248,7 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
       .fn()
       .mockResolvedValue(
         new Response(
-          '#EXTM3U\n#EXT-X-MAP:URI="0.m4s?ticket=secret"\n1.m4s?ticket=secret\n',
+          '#EXTM3U\n#EXT-X-MAP:URI="0.m4s?ticket=secret&r=bound_init"\n1.m4s?ticket=secret&r=bound_segment\n',
         ),
       );
     vi.stubGlobal("fetch", fetcher);
@@ -255,7 +259,7 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
       new Request("https://food.test/stream"),
     );
     expect(await response.text()).toBe(
-      '#EXTM3U\n#EXT-X-MAP:URI="0.m4s"\n1.m4s\n',
+      '#EXTM3U\n#EXT-X-MAP:URI="0.m4s?r=bound_init"\n1.m4s?r=bound_segment\n',
     );
     await expect(
       f.managed.stream(

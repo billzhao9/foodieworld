@@ -155,8 +155,8 @@ export class ManagedSessions {
         prompt: craft.opening.videoPrompt,
         model: "visko-orbis-stable",
         seconds: LIVE_RESERVATION_SECONDS,
-        options: { audioEnabled: true, passthrough: true, resolution: "auto" },
-        inputCounts: { image: 1 },
+        options: { audioEnabled: true, passthrough: true, resolution: "1080p" },
+        inputCounts: { opening: 1 },
         endUserRef: "_enterprise",
         managed: {
           openingAssetId,
