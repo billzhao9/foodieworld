@@ -1,3 +1,4 @@
+import { connectManagedLive } from "./lib/managed-live";
 import { foodPresentationPrompt } from "../shared/video-direction";
 import { cookwareSchema } from "../shared/cookware";
 import { MAX_BASE_INGREDIENTS, LIVE_ROUND_SECONDS } from "../shared/limits";
@@ -32,6 +33,9 @@ const restoredCraftSchema = z.object({
   animals: z.array(z.string()).default([]),
 });
 const copy = {
+  managedPartial: ["已保存可播放片段，但本轮部分画面未完整取回。", "Playable footage was saved, but part of this round could not be recovered."],
+  managedBackground: ["云端正在烹饪，离开页面也会继续；完成后自动进入画廊。", "Cooking in the cloud. You can leave; the finished video will appear in the gallery."],
+  managedSaving: ["录像已交给云端归档，可稍后在画廊查看。", "Your recording is being archived. Find it in the gallery shortly."],
   idle: [
     "选好食材，唤醒这份小小魔法。",
     "Choose your ingredients and awaken a little magic.",
@@ -467,6 +471,7 @@ export function useKitchen() {
       await refresh();
       void recoverPendingSaves();
       await restoreCraft();
+      await recoverManaged();
     } catch (e) {
       passwordError.value = msg(e instanceof RequestError ? e.code : "generic");
     } finally {
@@ -621,7 +626,12 @@ export function useKitchen() {
       const narration = await loadNarration(undefined, lastAudioLocale);
       if (run !== generation) return;
       await nextTick();
-      const opened = await api<SessionReply>(`/crafts/${runCraftId}/live`, {});
+      const opened = await api<SessionReply>(`/crafts/${runCraftId}/live`, { language: locale.value });
+      if (opened.managed) {
+        if (run !== generation) return;
+        await attachManaged(opened, run);
+        return;
+      }
       connectionSchema.parse(opened.connection);
       if (run !== generation) {
         await api(`/live/${opened.id}/stop`, {});
@@ -705,6 +715,74 @@ export function useKitchen() {
       if (pendingAudio === preparedAudio) pendingAudio = undefined;
     }
   }
+  type ManagedStatus = Extract<SessionReply, { managed: true }> & {
+    status: string; recordingStatus: string; creationId?: string; error?: string;
+    commands: Array<{ commandId: string; status: string }>;
+  };
+  let managedPoll: ReturnType<typeof setInterval> | undefined;
+  let managedPolling = false;
+  async function pollManaged() {
+    if (!session?.managed || managedPolling) return;
+    managedPolling = true;
+    const id = session.id;
+    try {
+      const data = await api<{ session: ManagedStatus }>(`/live/${id}`);
+      if (session?.id !== id) return;
+      session.expiresAt = data.session.expiresAt;
+      remaining.value = Math.max(0, Math.ceil((session.expiresAt - Date.now()) / 1000));
+      if (data.session.creationId) {
+        saveId = data.session.creationId;
+        saved.value = true; saveState.value = "saved";
+        recordingUrl.value = `/api/creations/${encodeURIComponent(saveId)}/video`;
+        statusCode.value = data.session.error?.startsWith("PARTIAL_RECORDING") ? "managedPartial" : "replay"; stage.value = "stopped";
+        clearInterval(managedPoll);
+        session = null;
+        await player?.close(); player = null;
+        await refresh();
+      } else if (data.session.recordingStatus === "failed") {
+        stage.value = "stopped"; saveState.value = "failed";
+        statusCode.value = "managedSaving";
+      } else if (["ended", "stopping", "failed"].includes(data.session.status)) {
+        stage.value = "stopped"; saveState.value = "saving";
+        statusCode.value = "managedSaving";
+      }
+    } catch { /* Viewing network loss does not stop the server-owned round. */ }
+    finally { managedPolling = false; }
+  }
+  async function attachManaged(opened: Extract<SessionReply, { managed: true }>, run: number) {
+    session = opened;
+    await nextTick();
+    if (!videoElement.value) throw new RequestError("generic");
+    let openingSpoken = false;
+    const viewing = await connectManagedLive({
+      video: videoElement.value, url: opened.playbackUrl, muted: muted.value,
+      onPlaying: () => { if (run === generation && session?.id === opened.id) { hadPlayback = true; stage.value = "live"; statusCode.value = "managedBackground"; if (!openingSpoken) { openingSpoken = true; setTimeout(() => { if (session?.id === opened.id) void narrateCurrent(); }, 800); } } },
+      onAudioBlocked: () => { audioBlocked.value = true; muted.value = true; },
+      onError: () => { errorCode.value = "NETWORK"; },
+    });
+    if (run !== generation) { await viewing.close(); return; }
+    player = viewing;
+    clearInterval(managedPoll);
+    managedPoll = setInterval(() => void pollManaged(), 2000);
+    void pollManaged();
+  }
+  async function recoverManaged() {
+    if (session) return;
+    try {
+      const data = await api<{ session: ManagedStatus; craftId: string; craft: z.infer<typeof restoredCraftSchema> } | null>("/live/recover");
+      if (!data || session) return;
+      craftId = data.craftId; rememberCraft();
+      opening.value = data.craft.opening ?? null;
+      baseIngredients.value = [...data.craft.baseIngredients];
+      additions.value = [...data.craft.additions]; animals.value = [...data.craft.animals];
+      activeCookware.value = data.craft.cookware;
+      if (!openingUrl.value) openingUrl.value = `/api/crafts/${craftId}/image`;
+      page.value = "lab";
+      stage.value = "connecting";
+      await nextTick();
+      await attachManaged(data.session, generation);
+    } catch { /* Preserve the existing craft and allow a later recovery poll. */ }
+  }
   function captureCover(): Promise<Blob | null> {
     const video = videoElement.value;
     if (
@@ -761,6 +839,15 @@ export function useKitchen() {
     }
   }
   async function stop() {
+    if (session?.managed) {
+      const current = session;
+      await api(`/live/${current.id}/stop`, {}).catch(failure);
+      stage.value = "stopped";
+      statusCode.value = "managedSaving";
+      saveState.value = "saving";
+      cancelPendingAdditions();
+      return;
+    }
     if (stopTask) return stopTask;
     cancelPendingAdditions();
     voiceGeneration++;
@@ -881,13 +968,24 @@ export function useKitchen() {
               id: item.id,
               ingredient: item.name,
               kind: item.kind,
+              language: locale.value,
             }),
           );
           if (!active()) return;
           latestAudio = action;
           latestActionId = item.id;
           item.status = "applying";
-          await current.update(action.prompt, audioPrompt());
+          if (session?.managed) {
+            const until = Date.now() + 45000;
+            while (active()) {
+              const reply = await api<{ session: { commands: Array<{commandId: string; status: string}> } }>(`/live/${liveId}`);
+              const command = reply.session.commands.find(c => c.commandId === item.id);
+              if (command?.status === "ack") break;
+              if (command && ["failed", "unknown", "cancelled"].includes(command.status)) throw new RequestError("QUEUE_CLOSED");
+              if (Date.now() > until) throw new RequestError("NETWORK");
+              await wait(1000);
+            }
+          } else await current.update(action.prompt, audioPrompt());
           if (!active()) return;
           // Capture accepted facts before awaiting persistence, so a concurrent
           // stop saves the same ingredients that were sent to the live model.
@@ -950,6 +1048,7 @@ export function useKitchen() {
     }
   }
   async function save() {
+    if (session?.managed) { await stop(); return; }
     if (!image || !opening.value || saved.value) return;
     if (stage.value === "live" || stage.value === "connecting") await stop();
     if (hadPlayback && !recording?.size) {
@@ -1075,6 +1174,7 @@ export function useKitchen() {
     ? `/api/creations/${encodeURIComponent(saveId)}/video`
     : recordingUrl.value);
   function leave() {
+    if (session?.managed) return;
     if (session)
       void fetch(`/api/live/${session.id}/stop`, {
         method: "POST",
@@ -1086,6 +1186,7 @@ export function useKitchen() {
     if (authenticated.value) void recoverPendingSaves();
   };
   const warnUnsaved = (event: BeforeUnloadEvent) => {
+    if (session?.managed) return;
     if (["live", "connecting"].includes(stage.value) || !!saveTask || saveState.value === "saving" || saveState.value === "failed") {
       event.preventDefault();
       event.returnValue = "";
@@ -1095,6 +1196,7 @@ export function useKitchen() {
     if (document.hidden) leave();
     else {
       retrySaves();
+      if (session?.managed) void pollManaged();
       if (galleryVisible()) void refresh();
     }
   };
@@ -1109,6 +1211,7 @@ export function useKitchen() {
       await refresh();
       void recoverPendingSaves();
       await restoreCraft();
+      await recoverManaged();
     } catch {
       authenticated.value = false;
     } finally {
@@ -1129,6 +1232,8 @@ export function useKitchen() {
     window.addEventListener("beforeunload", warnUnsaved);
   });
   onUnmounted(() => {
+    clearInterval(managedPoll);
+    if (session?.managed) void player?.close();
     clearInterval(galleryPoll);
     clearInterval(processingPoll);
     document.removeEventListener("visibilitychange", hidden);

@@ -32,6 +32,8 @@ export function loadConfig() {
     throw new Error("INVALID_UPSTREAM_CONFIGURATION");
   }
   return {
+    mediaArchive: process.env.MMLONE_MEDIA_ARCHIVE === "true",
+    managedLive: process.env.MMLONE_MANAGED_LIVE === "true",
     password: process.env.APP_PASSWORD || access.password,
     secret: process.env.APP_SESSION_SECRET || access.secret,
     databaseUrl: process.env.DATABASE_URL || "",
@@ -43,4 +45,7 @@ export function loadConfig() {
     host: process.env.HOST || "0.0.0.0",
   };
 }
-export type Config = ReturnType<typeof loadConfig>;
+export type Config = Omit<
+  ReturnType<typeof loadConfig>,
+  "mediaArchive" | "managedLive"
+> & { mediaArchive?: boolean; managedLive?: boolean };

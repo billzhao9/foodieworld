@@ -1,3 +1,5 @@
+import type { ManagedSessions } from "./managed-live";
+import type { NarrationLanguage } from "./narration";
 import { LIVE_ROUND_SECONDS, LIVE_RESERVATION_SECONDS } from "../shared/limits";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -16,6 +18,7 @@ const rowSchema = z.object({
   status: z.string(),
   stop_requested: z.boolean(),
   scope: z.string(),
+  managed: z.boolean().default(false),
 });
 export class LiveSessions {
   constructor(
@@ -23,8 +26,15 @@ export class LiveSessions {
     readonly upstream: Upstream,
     readonly crafts: Crafts,
     readonly scope = "development",
+    readonly managedSessions?: ManagedSessions,
   ) {}
-  async start(craftId: string, owner: string): Promise<SessionReply> {
+  async start(
+    craftId: string,
+    owner: string,
+    language: NarrationLanguage = "zh",
+  ): Promise<SessionReply> {
+    if (this.managedSessions)
+      return this.managedSessions.start(craftId, owner, language);
     const craft = await this.crafts.read(craftId, owner);
     if (!craft.imageUrl || !craft.opening) throw new ApiError("NOT_READY", 409);
     const id = randomUUID(),
@@ -101,7 +111,7 @@ export class LiveSessions {
     if (
       row.status !== "active" ||
       row.stop_requested ||
-      row.expires_at <= Date.now()
+      (!row.managed && row.expires_at <= Date.now())
     )
       throw new ApiError("SESSION_ENDED", 409);
     return row;
@@ -120,6 +130,10 @@ export class LiveSessions {
     );
     if (!r.rows[0]) return;
     const row = rowSchema.parse(r.rows[0]);
+    if (row.managed && this.managedSessions) {
+      await this.managedSessions.stop(id, owner);
+      return;
+    }
     if (!row.upstream_id) {
       await this.db.pool.query(
         "UPDATE fw_live SET status='uncertain' WHERE id=$1",
@@ -136,7 +150,7 @@ export class LiveSessions {
   async cleanup() {
     const now = Date.now();
     const r = await this.db.pool.query(
-      "SELECT * FROM fw_live WHERE scope=$1 AND (expires_at<$2 OR (status='active' AND heartbeat_at<$3) OR (status='uncertain' AND heartbeat_at<$3))",
+      "SELECT * FROM fw_live WHERE scope=$1 AND managed=false AND (expires_at<$2 OR (status='active' AND heartbeat_at<$3) OR (status='uncertain' AND heartbeat_at<$3))",
       [this.scope, now, now - 20000],
     );
     for (const data of r.rows) {

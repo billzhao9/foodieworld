@@ -96,6 +96,26 @@ Build before starting production mode. Set `NODE_ENV=production`, `MMLONE_BASE_U
 
 The application uses Vue 3, TypeScript, Vite, a Hono server, PostgreSQL, and the Reactor SDK. Automated checks cover application behavior and data contracts; visual quality, ingredient fidelity, and continuity still require watching the generated output.
 
+## Enterprise media and background recording
+
+The new storage and recording paths are opt-in. Keep `MMLONE_MEDIA_ARCHIVE=false` and `MMLONE_MANAGED_LIVE=false` until the corresponding MML ONE services have been deployed and verified.
+
+With both enabled, MML ONE owns the 90-second generation, ordered ingredient commands, original recording, narration mix, and compatible MP4. Closing the page disconnects only the viewer. Returning restores the same round or its saved creation; recovery never starts another paid generation. Playback uses authenticated HLS and can lag behind generation while the provider finishes segments. If only part of a round is recoverable, the app reports it and preserves the available video.
+
+PostgreSQL keeps recipes, gallery entries, ownership, likes, and stable enterprise asset IDs. Published finished videos are served by MML ONE; revocation or trashing takes effect at delivery. The app server streams the live preview without retaining video files. Existing browser-recording behavior remains available while the switches are off.
+
+After deploying the new database schema and verifying import, ranged playback, download, and publication revocation, preview or resume migration with:
+
+The default dry-run only reads PostgreSQL. On an older schema it exits with `MEDIA_MIGRATION_SCHEMA_NOT_READY` and lists the missing columns. Start the updated backend once with both flags still `false` to apply its additive schema migration, then rerun the dry-run. Do not use `--apply` merely to inspect an older installation.
+
+```sh
+pnpm exec tsx scripts/migrate-media.ts
+pnpm exec tsx scripts/migrate-media.ts --apply --limit=25
+pnpm exec tsx scripts/migrate-media.ts --apply --limit=25 --retry-failed
+```
+
+Migration reuses creation IDs and preserves share links, likes, and original PostgreSQL bytes. It does not regenerate media or delete source files. Run it with the intended `MMLONE_ENVIRONMENT` and backend-only enterprise key.
+
 ## Repository hygiene
 
 Commit only application source, tests, dependency lockfiles, operating instructions, and reviewed product screenshots. Do not commit API keys, passwords, database credentials, SSH files, generated media, logs, AI design documents, or local agent configuration. `.env.example` contains placeholders only.

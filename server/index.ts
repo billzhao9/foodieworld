@@ -1,3 +1,5 @@
+import { ArchiveWorker } from "./archive-worker";
+import { MediaArchive } from "./media-archive";
 import { RecordingWorker } from "./recording-worker";
 import { makeMmlNarration } from "./mml-narration";
 import { serve } from "@hono/node-server";
@@ -13,7 +15,12 @@ const narrator =
   process.env.NODE_ENV === "production"
     ? makeMmlNarration(config, db)
     : undefined;
-const { app, cleanup } = createApp(config, db, undefined, narrator);
+const { app, cleanup, managedCleanup } = createApp(
+  config,
+  db,
+  undefined,
+  narrator,
+);
 app.use("/*", serveStatic({ root: "./dist" }));
 app.get("*", serveStatic({ path: "./dist/index.html" }));
 let cleaning = false;
@@ -26,9 +33,22 @@ const timer = setInterval(() => {
       cleaning = false;
     });
 }, 5000);
+const managedTimer = setInterval(() => {
+  void managedCleanup().catch(() => console.error("managed_cleanup_failed"));
+}, 5000);
 const recordingWorker = new RecordingWorker(db);
+const archiveWorker = config.mediaArchive
+  ? new ArchiveWorker(db, new MediaArchive(config), config.environment)
+  : null;
 const recordingTimer = setInterval(() => {
-  void recordingWorker.tick().catch(() => console.error("recording_worker_failed"));
+  if (archiveWorker)
+    void archiveWorker
+      .tick()
+      .catch(() => console.error("archive_worker_failed"));
+  else
+    void recordingWorker
+      .tick()
+      .catch(() => console.error("recording_worker_failed"));
 }, 2000);
 const server = serve(
   { fetch: app.fetch, port: config.port, hostname: config.host },
@@ -41,6 +61,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
   process.once(signal, () => {
     clearInterval(timer);
     clearInterval(recordingTimer);
+    clearInterval(managedTimer);
     server.close(() => {
       void db.close().finally(() => process.exit(0));
     });

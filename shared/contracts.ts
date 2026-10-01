@@ -53,8 +53,33 @@ export interface SavedCreation {
   likeCount?: number;
   liked?: boolean;
 }
-export interface SessionReply {
+export interface ManagedSessionStatus {
+  error?: string;
   id: string;
-  connection: LiveConnection;
+  managed: true;
   expiresAt: number;
+  playbackUrl: string;
+  status: "queued" | "running" | "stopping" | "ended" | "failed";
+  recordingStatus:
+    | "pending"
+    | "capturing"
+    | "persisting"
+    | "playable"
+    | "failed";
+  commands: {
+    commandId: string;
+    sequence: number;
+    status: "accepted" | "sent" | "ack" | "failed" | "unknown";
+  }[];
+  assetId?: string;
+  creationId?: string;
+  readyAt?: number;
 }
+export type SessionReply =
+  | {
+      id: string;
+      managed?: false;
+      connection: LiveConnection;
+      expiresAt: number;
+    }
+  | ManagedSessionStatus;
