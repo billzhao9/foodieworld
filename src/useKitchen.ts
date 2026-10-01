@@ -1051,7 +1051,14 @@ export function useKitchen() {
             : "failed";
           failure(e);
           statusCode.value = "uncertain";
-          await stop();
+          if (session?.managed) {
+            // An addition failure is not a failed video transport. Preserve the
+            // running server-owned round; stop this queue without blindly
+            // dispatching later changes over an uncertain earlier command.
+            for (const queued of additionQueue.value) {
+              if (queued.status === "queued") queued.status = "cancelled";
+            }
+          } else await stop();
           return;
         }
       }

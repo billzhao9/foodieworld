@@ -110,3 +110,17 @@ it('respects an intentional mute when adding an ingredient', async () => {
  kitchen.addIngredient('cheese');
  expect(player.resumeAudio).not.toHaveBeenCalled();
 });
+
+it('keeps WebRTC and recording alive when preparing an addition fails', async () => {
+ const kitchen = await begin();
+ const original = vi.mocked(fetch).getMockImplementation()!;
+ vi.mocked(fetch).mockImplementation(async (url, init) => String(url).endsWith('/actions')
+  ? Response.json({error:{code:'INVALID_AI_OUTPUT'}},{status:502}) : original(url,init));
+ kitchen.addAnimal('turtle');
+ kitchen.addIngredient('cheese');
+ await vi.advanceTimersByTimeAsync(50);
+ expect(kitchen.stage.value).toBe('live');
+ expect(mocks.close).not.toHaveBeenCalled();
+ expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).endsWith('/stop'))).toBe(false);
+ expect(kitchen.additionQueue.value.map(x=>x.status)).toEqual(['failed','cancelled']);
+});
