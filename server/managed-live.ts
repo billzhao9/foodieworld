@@ -156,7 +156,7 @@ export class ManagedSessions {
         model: "visko-orbis-stable",
         seconds: LIVE_RESERVATION_SECONDS,
         options: { audioEnabled: true, passthrough: true, resolution: "1080p" },
-        inputCounts: { opening: 1 },
+        inputCounts: { image: 1 },
         endUserRef: "_enterprise",
         managed: {
           openingAssetId,
