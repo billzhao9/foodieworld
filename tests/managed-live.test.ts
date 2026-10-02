@@ -177,7 +177,7 @@ describe.skipIf(!databaseUrl)("managed live durable control", () => {
       `/api/live/${session.id}/stream/index.m3u8`,
     );
     expect(f.upstream).toHaveBeenCalledWith("/live-sessions", expect.objectContaining({
-      options: { audioEnabled: true, passthrough: true, resolution: "1080p" },
+      options: { audioEnabled: true, passthrough: false, resolution: "1080p" },
       inputCounts: { image: 1 },
     }));
     expect(f.save.mock.calls.map(([input]) => input.kind)).toEqual([
